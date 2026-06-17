@@ -22,7 +22,7 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 1073;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '75mb' }));

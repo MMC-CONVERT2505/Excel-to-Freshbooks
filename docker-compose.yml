@@ -39,6 +39,7 @@ services:
       FRESHBOOKS_ACCOUNT_ID:      ${FRESHBOOKS_ACCOUNT_ID:-}
       FRESHBOOKS_BUSINESS_UUID:   ${FRESHBOOKS_BUSINESS_UUID:-}
       FRESHBOOKS_BUSINESS_ID:     ${FRESHBOOKS_BUSINESS_ID:-}
+      FRONTEND_URL:               ${FRONTEND_URL:-http://localhost:1074}
     volumes:
       # Mount data folders from host — keeps files outside the container
       - ./Excel Templates:/app/Excel Templates:ro
