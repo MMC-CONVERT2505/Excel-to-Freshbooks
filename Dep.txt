@@ -1,0 +1,68 @@
+Good. Here's exactly what needs to happen:
+
+What you have:
+
+
+EC2: Ubuntu + Node 18 + Nginx ✅
+Missing: PostgreSQL, your code, PM2
+Full deployment plan — in order:
+
+Step 1 — Install PostgreSQL on EC2
+
+
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+sudo -u postgres psql -c "CREATE USER appuser WITH PASSWORD 'yourpassword';"
+sudo -u postgres psql -c "CREATE DATABASE qbd_freshbooks OWNER appuser;"
+Step 2 — Push code to GitHub + clone on EC2
+
+Is your code on GitHub already? If not that's the first thing — push it. Then on EC2:
+
+
+git clone https://github.com/yourrepo/qbd-to-freshbooks.git
+cd qbd-to-freshbooks/backend
+npm install
+Step 3 — Set up .env on EC2
+
+
+nano .env
+# paste all your env variables, update DATABASE_URL to point to EC2 postgres
+Step 4 — Run Prisma migrations
+
+
+npx prisma migrate deploy
+npx prisma generate
+Step 5 — Install PM2 (keeps app running 24/7)
+
+
+npm install -g pm2
+pm2 start npm --name "qbd-freshbooks" -- start
+pm2 save
+pm2 startup
+Step 6 — Configure Nginx reverse proxy
+
+
+server {
+    listen 80;
+    server_name YOUR_EC2_IP;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+    }
+}
+Step 7 — Jenkins for auto-deploy on git push
+
+Jenkins runs on EC2, watches your GitHub repo, deploys automatically when you push code.
+
+One issue to solve — FreshBooks OAuth needs HTTPS
+
+FreshBooks requires HTTPS for redirect URIs. Without a domain + SSL cert you have two options:
+
+Get a free domain (Freenom, or a cheap .com) → point to EC2 IP → set up SSL with Let's Encrypt (free)
+Run ngrok on EC2 — your existing ngrok static URL still works, just run ngrok on the server

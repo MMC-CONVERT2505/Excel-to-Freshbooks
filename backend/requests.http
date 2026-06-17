@@ -1,0 +1,404 @@
+### Health Check
+GET http://localhost:3000/health
+
+### Auth Login (open in browser)
+GET http://localhost:3000/auth/login
+
+### Select business after OAuth (if multiple — use index from console log)
+GET http://localhost:3000/auth/select-business/0
+
+### FreshBooks Identity
+GET http://localhost:3000/freshbooks/me
+
+###  ─── CHART OF ACCOUNTS ────────────────────────────
+
+### List Chart of Accounts
+GET http://localhost:3000/freshbooks/chart-of-accounts
+
+### Create Chart of Account (replace parent_account with real account_uuid from GET above)
+POST http://localhost:3000/freshbooks/chart-of-accounts
+Content-Type: application/json
+
+{
+  "name": "Test Account",
+  "number": "1000-2",
+  "type": "asset",
+  "sub_type": "Cash & Bank",
+  "state": "active",
+  "parent_account": "b4f1113b-fac3-44a4-92c2-c5631394c1c0"
+}
+
+###  ─── CLIENTS ──────────────────────────────────────
+
+### List Clients
+GET http://localhost:3000/freshbooks/clients
+
+### Create Client
+POST http://localhost:3000/freshbooks/clients
+Content-Type: application/json
+
+{
+  "fname": "John",
+  "lname": "Doe",
+  "email": "john@testcompany.com",
+  "organization": "Test Company Ltd",
+  "currency_code": "USD",
+  "language": "en",
+  "bus_phone": "123-456-7890",
+  "mob_phone": "098-765-4321",
+  "p_street": "123 Main St",
+  "p_street2": "Suite 100",
+  "p_city": "New York",
+  "p_province": "NY",
+  "p_code": "10001",
+  "p_country": "United States",
+  "s_street": "123 Main St",
+  "s_city": "New York",
+  "s_province": "NY",
+  "s_code": "10001",
+  "s_country": "United States",
+  "vat_name": "VAT",
+  "vat_number": "",
+  "note": "Test client"
+}
+
+###  ─── ITEMS ───────────────────────────────────────
+
+### List Items
+GET http://localhost:3000/freshbooks/items
+
+### Create Item
+POST http://localhost:3000/freshbooks/items
+Content-Type: application/json
+
+{
+  "name": "Web Development Service",
+  "description": "Hourly web development",
+  "sku": "WEB-001",
+  "qty": "1",
+  "unit_cost": {
+    "amount": "100.00",
+    "code": "USD"
+  },
+  "tax1": 0
+}
+
+###  ─── VENDORS ─────────────────────────────────────
+
+### List Vendors
+GET http://localhost:3000/freshbooks/vendors
+
+### Create Vendor (required: vendor_name, primary_contact_first_name, primary_contact_last_name, primary_contact_email)
+POST http://localhost:3000/freshbooks/vendors
+Content-Type: application/json
+
+{
+  "vendor_name": "Test Vendor LLC",
+  "primary_contact_first_name": "Jane",
+  "primary_contact_last_name": "Smith",
+  "primary_contact_email": "jane@testvendor.com",
+  "phone": "555-000-1111",
+  "street": "456 Vendor St",
+  "city": "Chicago",
+  "province": "IL",
+  "postal_code": "60601",
+  "country": "United States",
+  "currency_code": "USD",
+  "language": "en",
+  "website": "https://testvendor.com",
+  "note": "Test vendor"
+}
+
+###  ─── EXPENSES ────────────────────────────────────
+
+### List Expense Categories (get categoryid from here)
+GET http://localhost:3000/freshbooks/expense-categories
+
+### List Expenses
+GET http://localhost:3000/freshbooks/expenses
+
+### Export All Expenses to Excel (downloads freshbooks_expenses.xlsx)
+GET http://localhost:3000/freshbooks/expenses/export
+
+### Create Expense (replace categoryid and staffid with real values)
+POST http://localhost:3000/freshbooks/expenses
+Content-Type: application/json
+
+{
+  "amount": {
+    "amount": "50.00",
+    "code": "USD"
+  },
+  "categoryid": 10520791,
+  "staffid": 1,
+  "date": "2026-05-12",
+  "vendor": "Office Depot",
+  "notes": "Office supplies",
+  "clientid": 0
+}
+
+###  ─── INVOICES ────────────────────────────────────
+
+### List Invoices
+GET http://localhost:3000/freshbooks/invoices
+
+### Create Invoice (replace customerid with real client id)
+POST http://localhost:3000/freshbooks/invoices
+Content-Type: application/json
+
+{
+  "customerid": 270751,
+  "create_date": "2026-05-12",
+  "currency_code": "USD",
+  "due_offset_days": 30,
+  "notes": "Thank you for your business",
+  "terms": "Net 30",
+  "language": "en",
+  "lines": [
+    {
+      "name": "Web Development",
+      "description": "Frontend development work",
+      "qty": 2,
+      "unit_cost": {
+        "amount": "100.00",
+        "code": "USD"
+      }
+    }
+  ]
+}
+
+###  ─── SERVICES ─────────────────────────────────────
+
+### List Services
+GET http://localhost:3000/freshbooks/services
+
+### Create Service
+POST http://localhost:3000/freshbooks/services
+Content-Type: application/json
+
+{
+  "name": "Web Development"
+}
+
+###  ─── INCOME ──────────────────────────────────────
+
+### List Income
+GET http://localhost:3000/freshbooks/income
+
+### Create Income
+POST http://localhost:3000/freshbooks/income
+Content-Type: application/json
+
+{
+  "amount": { "amount": "500.00", "code": "USD" },
+  "source": "other",
+  "category_name": "other",
+  "date": "2026-05-12",
+  "note": "Test income entry",
+  "payment_type": "Check"
+}
+
+###  ─── CREDIT NOTES ───────────────────────────────
+
+### List Credit Notes
+GET http://localhost:3000/freshbooks/credit-notes
+
+### Create Credit Note (replace clientid with real value)
+POST http://localhost:3000/freshbooks/credit-notes
+Content-Type: application/json
+
+{
+  "clientid": 270751,
+  "credit_number": "CN-001",
+  "currency_code": "USD",
+  "create_date": "2026-05-12",
+  "credit_type": "goodwill",
+  "notes": "Test credit note"
+}
+
+###  ─── BILLS ───────────────────────────────────────
+
+### List Bills
+GET http://localhost:3000/freshbooks/bills
+
+### Create Bill (replace vendorid and categoryid with real values)
+POST http://localhost:3000/freshbooks/bills
+Content-Type: application/json
+
+{
+  "vendorid": 43983,
+  "issue_date": "2026-05-12",
+  "due_offset_days": 30,
+  "currency_code": "USD",
+  "language": "en",
+  "lines": [
+    {
+      "categoryid": 10520791,
+      "description": "Office supplies",
+      "quantity": 1,
+      "unit_cost": {
+        "amount": "100.00",
+        "code": "USD"
+      }
+    }
+  ]
+}
+
+###  ─── BILL PAYMENTS ────────────────────────────────
+
+### Create Bill Payment (replace billid with real bill id)
+POST http://localhost:3000/freshbooks/bill-payments
+Content-Type: application/json
+
+{
+  "billid": 11591,
+  "amount": { "amount": "100.00", "code": "USD" },
+  "paid_date": "2026-05-12",
+  "payment_type": "Check",
+  "note": "Test bill payment"
+}
+
+###  ─── JOURNAL ENTRIES ──────────────────────────────
+
+### List Journal Entries
+GET http://localhost:3000/freshbooks/journal-entries
+
+### Create Journal Entry (debit and credit amounts must balance)
+POST http://localhost:3000/freshbooks/journal-entries
+Content-Type: application/json
+
+{
+  "userEnteredDate": {
+    "year": "2026",
+    "month": "05",
+    "day": "12"
+  },
+  "name": "Test Journal Entry",
+  "journalEntryNumber": "JE001",
+  "description": "Test manual journal entry",
+  "details": [
+    {
+      "accountId": "b4f1113b-fac3-44a4-92c2-c5631394c1c0",
+      "amount": { "amount": "100.00", "code": "USD" },
+      "type": "TYPE_DEBIT"
+    },
+    {
+      "accountId": "63d0389a-f7df-4eeb-9c2d-96b82e61d0ee",
+      "amount": { "amount": "100.00", "code": "USD" },
+      "type": "TYPE_CREDIT"
+    }
+  ]
+}
+
+###  ─── PAYMENTS ────────────────────────────────────
+
+### Create Invoice Payment (replace invoiceid with real value)
+POST http://localhost:3000/freshbooks/payments
+Content-Type: application/json
+
+{
+  "invoiceid": 227951,
+  "amount": {
+    "amount": "200.00",
+    "code": "USD"
+  },
+  "date": "2026-05-12",
+  "type": "Check",
+  "note": "Payment for invoice"
+}
+
+###  ─── PARSER (reads QBD Exports folder → writes Excel Templates) ──────
+
+### Parse ALL (runs every parser in one shot)
+POST http://localhost:3000/parse/all
+
+### Parse COA (reads QBD Exports/coa.csv → writes Excel Templates/11_chart_of_accounts.csv)
+POST http://localhost:3000/parse/coa
+
+### Parse Clients (reads QBD Exports/Client csv.csv → writes Excel Templates/01_clients.csv)
+POST http://localhost:3000/parse/clients
+
+### Parse Vendors (reads QBD Exports/vendor csv.csv → writes Excel Templates/03_vendors.csv)
+POST http://localhost:3000/parse/vendors
+
+### Parse Items (reads item.xlsx → writes 02_items.csv — Group/Sales Tax types only)
+POST http://localhost:3000/parse/items
+
+### Parse Services (reads item.xlsx → writes 12_services.csv — Service/Non-inventory/Other Charge types)
+POST http://localhost:3000/parse/services
+
+### Parse Invoices (reads QBD Exports/Journal csv.csv → writes Excel Templates/05_invoices.csv)
+POST http://localhost:3000/parse/invoices
+
+### Parse Expenses (reads QBD Exports/Journal csv.csv → writes Excel Templates/04_expenses.csv)
+POST http://localhost:3000/parse/expenses
+
+### Parse Income (reads all data (2).xlsx Deposit transactions → writes Excel Templates/06_income.csv)
+POST http://localhost:3000/parse/income
+
+### Parse Bills (reads all data (2).xlsx Bill transactions → writes Excel Templates/08_bills.csv)
+POST http://localhost:3000/parse/bills
+
+### Parse Credit Notes (reads all data (2).xlsx Credit Memo/Credit Card Refund transactions → writes Excel Templates/07_credit_notes.csv)
+POST http://localhost:3000/parse/credit-notes
+
+### Parse Journal Entries (reads all data (2).xlsx General Journal transactions → writes Excel Templates/14_journal_entries.csv)
+POST http://localhost:3000/parse/journal-entries
+
+### Parse Invoice Payments (reads QBD Exports/Invoice Payment.xlsx Sheet1 → writes Excel Templates/10_invoice_payments.csv)
+POST http://localhost:3000/parse/invoice-payments
+
+### Parse Bill Payments (reads QBD Exports/Bills Payment.xlsx Sheet1 → writes Excel Templates/09_bill_payments.csv)
+POST http://localhost:3000/parse/bill-payments
+
+###  ─── MIGRATION (reads Excel Templates folder) ──────
+
+### Migrate ALL (pushes all entities to FreshBooks in dependency order)
+POST http://localhost:3000/migrate/all
+
+### Migrate Chart of Accounts only
+POST http://localhost:3000/migrate/chart-of-accounts
+
+### Migrate Clients only
+POST http://localhost:3000/migrate/clients
+
+### Migrate Items only
+POST http://localhost:3000/migrate/items
+
+### Delete ALL Items from FreshBooks (use before re-migrating)
+DELETE http://localhost:3000/migrate/items
+
+### Migrate Vendors only
+POST http://localhost:3000/migrate/vendors
+
+### Migrate Expenses only
+POST http://localhost:3000/migrate/expenses
+
+### Migrate Invoices only
+POST http://localhost:3000/migrate/invoices
+
+### Migrate Income only
+POST http://localhost:3000/migrate/income
+
+### Migrate Credit Notes only
+POST http://localhost:3000/migrate/credit-notes
+
+### Migrate Bills only
+POST http://localhost:3000/migrate/bills
+
+### Migrate Bill Payments only (billid required in CSV)
+POST http://localhost:3000/migrate/bill-payments
+
+### Migrate Invoice Payments only (invoiceid required in CSV)
+POST http://localhost:3000/migrate/invoice-payments
+
+### Migrate Services only (reads 12_services.csv)
+POST http://localhost:3000/migrate/services
+
+### Migrate Expense Categories only (reads 13_expense_categories.csv)
+POST http://localhost:3000/migrate/expense-categories
+
+### Migrate Journal Entries only (reads 14_journal_entries.csv)
+POST http://localhost:3000/migrate/journal-entries
+
+

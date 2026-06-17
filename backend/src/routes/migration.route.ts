@@ -1,0 +1,44 @@
+import { Router } from 'express';
+import {
+  runMigrateClients,
+  runMigrateItems,
+  runMigrateVendors,
+  runMigrateExpenses,
+  runMigrateExpenseCategories,
+  runMigrateInvoices,
+  runMigrateIncome,
+  runMigrateCreditNotes,
+  runMigrateBills,
+  runMigrateBillPayments,
+  runMigrateInvoicePayments,
+  runMigrateChartOfAccounts,
+  runMigrateServices,
+  runMigrateJournalEntries,
+  runMigrateAll,
+  runDeleteAllItems,
+  runGetMigrationStatus,
+  runCancelMigration,
+} from '../controllers/migration.controller.js';
+
+const router = Router();
+
+router.get('/status',            runGetMigrationStatus);
+router.post('/cancel/:entity',   runCancelMigration);
+router.post('/clients',          runMigrateClients);
+router.post('/items',            runMigrateItems);
+router.delete('/items',          runDeleteAllItems);
+router.post('/vendors',          runMigrateVendors);
+router.post('/expenses',            runMigrateExpenses);
+router.post('/expense-categories', runMigrateExpenseCategories);
+router.post('/invoices',         runMigrateInvoices);
+router.post('/income',           runMigrateIncome);
+router.post('/credit-notes',     runMigrateCreditNotes);
+router.post('/bills',            runMigrateBills);
+router.post('/bill-payments',    runMigrateBillPayments);
+router.post('/invoice-payments', runMigrateInvoicePayments);
+router.post('/chart-of-accounts', runMigrateChartOfAccounts);
+router.post('/services',         runMigrateServices);
+router.post('/journal-entries',  runMigrateJournalEntries);
+router.post('/all',              runMigrateAll);
+
+export default router;

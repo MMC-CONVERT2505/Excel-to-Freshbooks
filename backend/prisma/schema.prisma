@@ -1,0 +1,238 @@
+// =====================================================================
+// QuickBooks Desktop → FreshBooks Migration Schema
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------
+// ENUMS — explicit state machines, type-safe and indexable
+// ---------------------------------------------------------------------
+
+enum EntityType {
+  CHART_OF_ACCOUNTS
+  CLIENT
+  VENDOR
+  ITEM
+  SERVICE
+  INVOICE
+  EXPENSE
+  INCOME
+  CREDIT_NOTE
+  BILL
+  BILL_PAYMENT
+  INVOICE_PAYMENT
+  JOURNAL_ENTRY
+}
+
+enum RunStatus {
+  PENDING       // created but not started
+  RUNNING       // actively pushing records
+  COMPLETED     // all phases succeeded
+  PARTIAL       // some records failed but run finished
+  FAILED        // aborted / unrecoverable error
+  CANCELLED     // user-cancelled
+}
+
+enum PhaseStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+enum RecordStatus {
+  PENDING       // not yet attempted
+  SUCCESS       // pushed to FreshBooks, externalId stored
+  FAILED        // last attempt failed, eligible for retry
+  SKIPPED       // intentionally skipped (e.g., duplicate, invalid)
+}
+
+enum ErrorCategory {
+  VALIDATION      // bad / missing field, schema mismatch
+  AUTHENTICATION  // 401 — token issue
+  AUTHORIZATION   // 403 — permissions
+  RATE_LIMIT      // 429 — back off
+  NETWORK         // timeout, DNS, connection reset
+  DUPLICATE       // already exists in FreshBooks
+  BUSINESS_RULE   // FreshBooks rejected based on business logic
+  SERVER_ERROR    // 5xx
+  UNKNOWN
+}
+
+enum TokenRefreshStatus {
+  SUCCESS
+  FAILED
+}
+
+// ---------------------------------------------------------------------
+// TOKEN MANAGEMENT
+// ---------------------------------------------------------------------
+
+model FreshbooksToken {
+  id            Int       @id @default(autoincrement())
+  accessToken   String    @db.Text
+  refreshToken  String    @db.Text
+  tokenType     String    @default("Bearer")
+  scope         String
+  // Store absolute expiry, not relative — easier to query "is this expired?"
+  expiresAt     DateTime
+  accountId     String?
+  businessUuid  String?
+  businessId    String?
+  // Mark old tokens inactive instead of deleting — audit trail
+  isActive      Boolean   @default(true)
+  // isCurrent = the company currently selected for migration
+  // Only one token has isCurrent=true at a time; isActive=true on all stored tokens
+  isCurrent     Boolean   @default(false)
+  companyLabel  String?   // e.g. "Acme Corp" — set by user after OAuth
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  refreshLogs   TokenRefreshLog[]
+  runs          MigrationRun[]    @relation("RunTokens")
+  sheets        UploadedSheet[]   @relation("SheetTokens")
+
+  @@index([isActive, expiresAt])
+  @@index([isCurrent])
+}
+
+// Uploaded Excel sheets — rows stored as JSON, auto-expires after 3 days.
+// Scoped per company (tokenId) so multiple clients never see each other's data.
+model UploadedSheet {
+  id         Int              @id @default(autoincrement())
+  tokenId    Int?
+  token      FreshbooksToken? @relation("SheetTokens", fields: [tokenId], references: [id], onDelete: Cascade)
+  entity     String           // frontend entity ID: 'vendors', 'clients', etc.
+  filename   String           // original filename — display only
+  rowCount   Int
+  rows       Json             // normalized string rows: [{col: val, ...}, ...]
+  uploadedAt DateTime         @default(now())
+  expiresAt  DateTime         // uploadedAt + 3 days
+
+  @@index([tokenId, entity])
+  @@index([expiresAt])
+}
+
+model TokenRefreshLog {
+  id            Int                @id @default(autoincrement())
+  tokenId       Int
+  token         FreshbooksToken    @relation(fields: [tokenId], references: [id])
+  status        TokenRefreshStatus
+  errorMessage  String?
+  oldExpiresAt  DateTime?
+  newExpiresAt  DateTime?
+  attemptedAt   DateTime           @default(now())
+
+  @@index([tokenId, attemptedAt])
+}
+
+// ---------------------------------------------------------------------
+// MIGRATION HIERARCHY: Run → Phase → Record → Error
+// ---------------------------------------------------------------------
+
+model MigrationRun {
+  id            Int          @id @default(autoincrement())
+  label         String?      // optional: "Q3 2024 full migration"
+  status        RunStatus    @default(PENDING)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  // Heartbeat lets us detect crashed runs (status=RUNNING but heartbeat is stale)
+  heartbeatAt   DateTime?
+  triggeredBy   String?      // user id, "system", "cron"
+  // Which FreshBooks company this run belongs to
+  tokenId       Int?
+  token         FreshbooksToken? @relation("RunTokens", fields: [tokenId], references: [id])
+  // If this run is a retry of an earlier one, link back
+  parentRunId   Int?
+  parentRun     MigrationRun?  @relation("RunRetries", fields: [parentRunId], references: [id])
+  retries       MigrationRun[] @relation("RunRetries")
+
+  phases        MigrationPhase[]
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status, heartbeatAt])
+  @@index([createdAt])
+  @@index([tokenId])
+}
+
+model MigrationPhase {
+  id              Int           @id @default(autoincrement())
+  runId           Int
+  run             MigrationRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  entity          EntityType
+  status          PhaseStatus   @default(PENDING)
+  // Counters denormalized for fast dashboard queries — recompute from records on doubt
+  totalRecords    Int           @default(0)
+  successCount    Int           @default(0)
+  failedCount     Int           @default(0)
+  skippedCount    Int           @default(0)
+  sourceFile      String?       // CSV template path/name
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMs      Int?
+
+  records         MigrationRecord[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // One phase per entity per run
+  @@unique([runId, entity])
+  @@index([status])
+}
+
+model MigrationRecord {
+  id              Int            @id @default(autoincrement())
+  phaseId         Int
+  phase           MigrationPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  sourceRow       Int            // line number in the CSV template
+  // naturalKey = human/business identifier (email, account name, invoice #)
+  // Used for dedup and human-readable error reports
+  naturalKey      String?
+  // The full parsed row — enables replay without re-reading CSV
+  sourcePayload   Json
+  status          RecordStatus   @default(PENDING)
+  externalId      String?        // FreshBooks ID after success
+  attemptCount    Int            @default(0)
+  lastAttemptAt   DateTime?
+  // Scheduled time for next retry (exponential backoff)
+  nextRetryAt     DateTime?
+
+  errors          MigrationError[]
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Idempotency: same row in same phase can't appear twice
+  @@unique([phaseId, sourceRow])
+  @@index([phaseId, status])
+  @@index([status, nextRetryAt])
+  @@index([naturalKey])
+}
+
+model MigrationError {
+  id            Int             @id @default(autoincrement())
+  recordId      Int
+  record        MigrationRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  attempt       Int             // which attempt failed: 1, 2, 3...
+  category      ErrorCategory
+  httpStatus    Int?            // 400, 401, 422, 429, 500
+  errorCode     String?         // FreshBooks-specific code if present
+  field         String?         // which input field, if validation
+  message       String          @db.Text  // clean human-readable
+  rawResponse   Json?           // full API response for debugging
+  occurredAt    DateTime        @default(now())
+
+  @@index([recordId, attempt])
+  @@index([category, occurredAt])
+}

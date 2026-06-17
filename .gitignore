@@ -1,0 +1,29 @@
+# Secrets & keys
+.env
+*.pem
+
+# OS / editor temp files
+~$*
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Data directories (client files, not code)
+American Surveyors/
+QBD Exports/
+QBD Parsed/
+QBD Sheets/
+Excel Templates/
+FreshBooks Templates/
+FreshBooks Templates.rar
+
+# Project planning docs (local only)
+*.docx
+*.html
+*.rar
+
+# Claude Code local config
+.claude/
+
+# Node (each subproject has its own .gitignore for node_modules/dist)
+node_modules/

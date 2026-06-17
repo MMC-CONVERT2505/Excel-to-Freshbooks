@@ -1,0 +1,53 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: qbd_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-qbd_freshbooks}
+      POSTGRES_USER:     ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"           # only exposed for local debugging — remove in prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qbd_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV:                   production
+      PORT:                       1073
+      DATABASE_URL:               postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-qbd_freshbooks}
+      FRESHBOOKS_CLIENT_ID:       ${FRESHBOOKS_CLIENT_ID}
+      FRESHBOOKS_CLIENT_SECRET:   ${FRESHBOOKS_CLIENT_SECRET}
+      FRESHBOOKS_REDIRECT_URI:    ${FRESHBOOKS_REDIRECT_URI}
+      FRESHBOOKS_ACCOUNT_ID:      ${FRESHBOOKS_ACCOUNT_ID:-}
+      FRESHBOOKS_BUSINESS_UUID:   ${FRESHBOOKS_BUSINESS_UUID:-}
+      FRESHBOOKS_BUSINESS_ID:     ${FRESHBOOKS_BUSINESS_ID:-}
+    volumes:
+      # Mount data folders from host — keeps files outside the container
+      - ./Excel Templates:/app/Excel Templates:ro
+      - ./QBD Exports:/app/QBD Exports:ro
+      - ./QBD Parsed:/app/QBD Parsed
+    ports:
+      - "1073:1073"
+    command: >
+      sh -c "npx prisma migrate deploy && node dist/index.js"
+
+volumes:
+  postgres_data:
