@@ -220,6 +220,25 @@ model MigrationRecord {
   @@index([naturalKey])
 }
 
+// QBD export files uploaded from the frontend, and the Excel templates produced
+// by the parser. Both expire after 5 days and are purged by the cleanup job.
+model StoredFile {
+  id        Int            @id @default(autoincrement())
+  filename  String
+  content   Bytes
+  fileType  StoredFileType
+  expiresAt DateTime
+  createdAt DateTime       @default(now())
+
+  @@unique([filename, fileType])
+  @@index([expiresAt])
+}
+
+enum StoredFileType {
+  QBD_EXPORT
+  EXCEL_TEMPLATE
+}
+
 model MigrationError {
   id            Int             @id @default(autoincrement())
   recordId      Int

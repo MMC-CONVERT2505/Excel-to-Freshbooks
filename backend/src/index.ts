@@ -56,6 +56,13 @@ async function cleanupExpiredSheets() {
   if (count > 0) console.log(`[CLEANUP] Deleted ${count} expired uploaded sheet(s).`);
 }
 
+async function cleanupExpiredFiles() {
+  const { count } = await prisma.storedFile.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  if (count > 0) console.log(`[CLEANUP] Deleted ${count} expired stored file(s).`);
+}
+
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   // Clean up any RUNNING phases/runs left over from a previous crashed session
@@ -73,14 +80,18 @@ server.listen(PORT, async () => {
   } catch (err: any) {
     console.warn('[STARTUP] Could not clean up stale migrations:', err.message);
   }
-  // Delete uploaded sheets that have passed their 3-day expiry
+  // Delete uploaded sheets and stored files that have passed their expiry
   try {
     await cleanupExpiredSheets();
+    await cleanupExpiredFiles();
   } catch (err: any) {
-    console.warn('[STARTUP] Could not clean up expired sheets:', err.message);
+    console.warn('[STARTUP] Could not clean up expired data:', err.message);
   }
   // Re-run cleanup every 6 hours so long-running servers also purge stale data
-  setInterval(() => cleanupExpiredSheets().catch(() => {}), 6 * 60 * 60 * 1000);
+  setInterval(async () => {
+    await cleanupExpiredSheets().catch(() => {});
+    await cleanupExpiredFiles().catch(() => {});
+  }, 6 * 60 * 60 * 1000);
   try {
     await loadBusinessConfigFromDB();
   } catch (err: any) {

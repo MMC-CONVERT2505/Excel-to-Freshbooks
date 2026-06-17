@@ -1,24 +1,22 @@
 import { createRequire } from 'module';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import prisma from '../lib/prisma.js';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const QBD_DIR       = path.resolve(__dirname, '../../../QBD Exports');
-const TEMPLATES_DIR = path.resolve(__dirname, '../../../Excel Templates');
-
 type Row = Record<string, string>;
 
-function readQBD(filename: string): Row[] {
-  const filePath = path.join(QBD_DIR, filename);
-  const wb = XLSX.readFile(filePath, { cellDates: true });
+const FILE_TTL_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
+
+async function readQBD(filename: string): Promise<Row[]> {
+  const record = await prisma.storedFile.findUnique({
+    where: { filename_fileType: { filename, fileType: 'QBD_EXPORT' } },
+  });
+  if (!record) throw new Error(`QBD file "${filename}" not found — please upload it first.`);
+  const wb = XLSX.read(Buffer.from(record.content), { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' }) as any[];
-  return rows.map(row => {
+  return rows.map((row: any) => {
     const out: Row = {};
     for (const key of Object.keys(row)) {
       const val = row[key];
@@ -28,12 +26,18 @@ function readQBD(filename: string): Row[] {
   });
 }
 
-function writeTemplate(filename: string, rows: Row[]): void {
-  const filePath = path.join(TEMPLATES_DIR, filename);
+async function writeTemplate(filename: string, rows: Row[]): Promise<void> {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  XLSX.writeFile(wb, filePath);
+  const raw: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const content = new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)) as Uint8Array<ArrayBuffer>;
+  const expiresAt = new Date(Date.now() + FILE_TTL_MS);
+  await prisma.storedFile.upsert({
+    where:  { filename_fileType: { filename, fileType: 'EXCEL_TEMPLATE' } },
+    create: { filename, content, fileType: 'EXCEL_TEMPLATE', expiresAt },
+    update: { content, expiresAt },
+  });
 }
 
 // ─── TYPE MAP: QBD → FreshBooks ──────────────────────────────────────────────
@@ -103,8 +107,8 @@ function firstEmail(raw: string): string {
 
 // ─── COA PARSER ──────────────────────────────────────────────────────────────
 
-export function parseQBDCOA(): { output: Row[]; file: string } {
-  const rows = readQBD('Charts of accounting.xlsx');
+export async function parseQBDCOA(): Promise<{ output: Row[]; file: string }> {
+  const rows = await readQBD('Charts of accounting.xlsx');
 
   // Pass 1: build name → number map from top-level accounts (no colon in Account field)
   const nameToNumber: Record<string, string> = {};
@@ -159,15 +163,15 @@ export function parseQBDCOA(): { output: Row[]; file: string } {
   // Parents first — migration requires parents to exist before sub-accounts
   const output = [...parents, ...children];
 
-  writeTemplate('11_chart_of_accounts.csv', output);
+  await writeTemplate('11_chart_of_accounts.csv', output);
 
   return { output, file: '11_chart_of_accounts.csv' };
 }
 
 // ─── CLIENT PARSER ───────────────────────────────────────────────────────────
 
-export function parseQBDClients(): { output: Row[]; file: string } {
-  const rows = readQBD('Client.xlsx');
+export async function parseQBDClients(): Promise<{ output: Row[]; file: string }> {
+  const rows = await readQBD('Client.xlsx');
   const output: Row[] = [];
 
   for (const row of rows) {
@@ -242,14 +246,14 @@ export function parseQBDClients(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('01_clients.csv', output);
+  await writeTemplate('01_clients.csv', output);
   return { output, file: '01_clients.csv' };
 }
 
 // ─── VENDOR PARSER ───────────────────────────────────────────────────────────
 
-export function parseQBDVendors(): { output: Row[]; file: string } {
-  const rows = readQBD('Vendior.xlsx');
+export async function parseQBDVendors(): Promise<{ output: Row[]; file: string }> {
+  const rows = await readQBD('Vendior.xlsx');
   const output: Row[] = [];
 
   for (const row of rows) {
@@ -288,7 +292,7 @@ export function parseQBDVendors(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('03_vendors.csv', output);
+  await writeTemplate('03_vendors.csv', output);
   return { output, file: '03_vendors.csv' };
 }
 
@@ -312,8 +316,8 @@ function extractAccountNumber(accountField: string): string {
   return dashIndex !== -1 ? base.substring(0, dashIndex).trim() : base;
 }
 
-export function parseQBDItems(): { output: Row[]; file: string } {
-  const rows = readQBD('item.xlsx');
+export async function parseQBDItems(): Promise<{ output: Row[]; file: string }> {
+  const rows = await readQBD('item.xlsx');
   const output: Row[] = [];
 
   for (const row of rows) {
@@ -340,12 +344,12 @@ export function parseQBDItems(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('02_items.csv', output);
+  await writeTemplate('02_items.csv', output);
   return { output, file: '02_items.csv' };
 }
 
-export function parseQBDServices(): { output: Row[]; file: string } {
-  const rows = readQBD('item.xlsx');
+export async function parseQBDServices(): Promise<{ output: Row[]; file: string }> {
+  const rows = await readQBD('item.xlsx');
   const output: Row[] = [];
 
   for (const row of rows) {
@@ -369,7 +373,7 @@ export function parseQBDServices(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('12_services.csv', output);
+  await writeTemplate('12_services.csv', output);
   return { output, file: '12_services.csv' };
 }
 
@@ -439,9 +443,12 @@ function calcDueOffset(createISO: string, dueISO: string): number {
 
 type JournalTx = { header: Record<string, any>; lines: Record<string, any>[] };
 
-function groupJournalRows(filename: string): JournalTx[] {
-  const filePath = path.join(QBD_DIR, filename);
-  const wb = XLSX.readFile(filePath, { cellDates: true });
+async function groupJournalRows(filename: string): Promise<JournalTx[]> {
+  const record = await prisma.storedFile.findUnique({
+    where: { filename_fileType: { filename, fileType: 'QBD_EXPORT' } },
+  });
+  if (!record) throw new Error(`QBD file "${filename}" not found — please upload it first.`);
+  const wb = XLSX.read(Buffer.from(record.content), { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
@@ -462,8 +469,8 @@ function groupJournalRows(filename: string): JournalTx[] {
 
 // ─── INVOICE PARSER ──────────────────────────────────────────────────────────
 
-export function parseQBDInvoices(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDInvoices(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const invoices = transactions.filter(t => t.header['Type'] === 'Invoice');
@@ -511,7 +518,7 @@ export function parseQBDInvoices(): { output: Row[]; file: string } {
     }
   }
 
-  writeTemplate('05_invoices.csv', output);
+  await writeTemplate('05_invoices.csv', output);
   return { output, file: '05_invoices.csv' };
 }
 
@@ -522,8 +529,8 @@ const EXPENSE_ACCOUNT_TYPES = new Set(['Expense', 'Cost of Goods Sold', 'Other E
 // These types have their own dedicated parsers — exclude from expenses
 const NON_EXPENSE_TYPES = new Set(['Invoice', 'Bill', 'Bill Pmt -Check', 'Bill Pmt -CCard', 'Payment', 'Sales Receipt', 'Credit Memo']);
 
-export function parseQBDExpenses(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDExpenses(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const expenseTxns = transactions.filter(t => !NON_EXPENSE_TYPES.has(t.header['Type']));
@@ -559,7 +566,7 @@ export function parseQBDExpenses(): { output: Row[]; file: string } {
     }
   }
 
-  writeTemplate('04_expenses.csv', output);
+  await writeTemplate('04_expenses.csv', output);
   return { output, file: '04_expenses.csv' };
 }
 
@@ -567,8 +574,8 @@ export function parseQBDExpenses(): { output: Row[]; file: string } {
 
 const INCOME_ACCOUNT_TYPES = new Set(['Income', 'Other Income']);
 
-export function parseQBDIncome(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDIncome(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const deposits = transactions.filter(t => t.header['Type'] === 'Deposit');
@@ -600,7 +607,7 @@ export function parseQBDIncome(): { output: Row[]; file: string } {
     }
   }
 
-  writeTemplate('06_income.csv', output);
+  await writeTemplate('06_income.csv', output);
   return { output, file: '06_income.csv' };
 }
 
@@ -609,8 +616,8 @@ export function parseQBDIncome(): { output: Row[]; file: string } {
 // QBD credit-to-customer transaction types
 const CREDIT_NOTE_TYPES = new Set(['Credit Memo']);
 
-export function parseQBDCreditNotes(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDCreditNotes(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const credits = transactions.filter(t => CREDIT_NOTE_TYPES.has(t.header['Type']));
@@ -650,7 +657,7 @@ export function parseQBDCreditNotes(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('07_credit_notes.csv', output);
+  await writeTemplate('07_credit_notes.csv', output);
   return { output, file: '07_credit_notes.csv' };
 }
 
@@ -697,8 +704,8 @@ function parseJournalLine(
   return { acctNum, acctName, amount, type };
 }
 
-export function parseQBDJournalEntries(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDJournalEntries(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const journals = transactions.filter(t => t.header['Type'] === 'General Journal');
@@ -732,14 +739,14 @@ export function parseQBDJournalEntries(): { output: Row[]; file: string } {
     }
   }
 
-  writeTemplate('14_journal_entries.csv', output);
+  await writeTemplate('14_journal_entries.csv', output);
   return { output, file: '14_journal_entries.csv' };
 }
 
 // ─── BILLS PARSER ────────────────────────────────────────────────────────────
 
-export function parseQBDBills(): { output: Row[]; file: string } {
-  const transactions = groupJournalRows('all data (2).xlsx');
+export async function parseQBDBills(): Promise<{ output: Row[]; file: string }> {
+  const transactions = await groupJournalRows('all data (2).xlsx');
   const output: Row[] = [];
 
   const bills = transactions.filter(t => t.header['Type'] === 'Bill');
@@ -781,7 +788,7 @@ export function parseQBDBills(): { output: Row[]; file: string } {
     }
   }
 
-  writeTemplate('08_bills.csv', output);
+  await writeTemplate('08_bills.csv', output);
   return { output, file: '08_bills.csv' };
 }
 
@@ -809,10 +816,13 @@ function mapInvoicePaymentType(raw: string): string {
   return INVOICE_PAYMENT_TYPE_MAP[raw.toLowerCase().trim()] || 'Check';
 }
 
-export function parseQBDInvoicePayments(): { output: Row[]; file: string } {
-  const filePath = path.join(QBD_DIR, 'Invoice Payment.xlsx');
-  const wb = XLSX.readFile(filePath, { cellDates: true });
-  // Always Sheet1 only — raw data
+export async function parseQBDInvoicePayments(): Promise<{ output: Row[]; file: string }> {
+  const filename = 'Invoice Payment.xlsx';
+  const record = await prisma.storedFile.findUnique({
+    where: { filename_fileType: { filename, fileType: 'QBD_EXPORT' } },
+  });
+  if (!record) throw new Error(`QBD file "${filename}" not found — please upload it first.`);
+  const wb = XLSX.read(Buffer.from(record.content), { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rawRows: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
@@ -839,7 +849,7 @@ export function parseQBDInvoicePayments(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('10_invoice_payments.csv', output);
+  await writeTemplate('10_invoice_payments.csv', output);
   return { output, file: '10_invoice_payments.csv' };
 }
 
@@ -849,10 +859,13 @@ export function parseQBDInvoicePayments(): { output: Row[]; file: string } {
 // Fields per Ronak task #672: amount, currency_code, date, type, note, bill_number
 // Also includes vendor_name so migration can resolve the FreshBooks bill ID
 
-export function parseQBDBillPayments(): { output: Row[]; file: string } {
-  const filePath = path.join(QBD_DIR, 'Bills Payment.xlsx');
-  const wb = XLSX.readFile(filePath, { cellDates: true });
-  // Always Sheet1 only — raw data
+export async function parseQBDBillPayments(): Promise<{ output: Row[]; file: string }> {
+  const filename = 'Bills Payment.xlsx';
+  const record = await prisma.storedFile.findUnique({
+    where: { filename_fileType: { filename, fileType: 'QBD_EXPORT' } },
+  });
+  if (!record) throw new Error(`QBD file "${filename}" not found — please upload it first.`);
+  const wb = XLSX.read(Buffer.from(record.content), { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rawRows: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
@@ -879,26 +892,26 @@ export function parseQBDBillPayments(): { output: Row[]; file: string } {
     });
   }
 
-  writeTemplate('09_bill_payments.csv', output);
+  await writeTemplate('09_bill_payments.csv', output);
   return { output, file: '09_bill_payments.csv' };
 }
 
-export function parseQBDAll() {
-  const results = [
-    { name: 'Chart of Accounts',   ...parseQBDCOA() },
-    { name: 'Clients',             ...parseQBDClients() },
-    { name: 'Vendors',             ...parseQBDVendors() },
-    { name: 'Items',               ...parseQBDItems() },
-    { name: 'Services',            ...parseQBDServices() },
-    { name: 'Invoices',            ...parseQBDInvoices() },
-    { name: 'Expenses',            ...parseQBDExpenses() },
-    { name: 'Income',              ...parseQBDIncome() },
-    { name: 'Bills',               ...parseQBDBills() },
-    { name: 'Credit Notes',        ...parseQBDCreditNotes() },
-    { name: 'Journal Entries',     ...parseQBDJournalEntries() },
-    { name: 'Invoice Payments',    ...parseQBDInvoicePayments() },
-    { name: 'Bill Payments',       ...parseQBDBillPayments() },
-  ];
+export async function parseQBDAll() {
+  const results = await Promise.all([
+    parseQBDCOA().then(r           => ({ name: 'Chart of Accounts',  ...r })),
+    parseQBDClients().then(r       => ({ name: 'Clients',            ...r })),
+    parseQBDVendors().then(r       => ({ name: 'Vendors',            ...r })),
+    parseQBDItems().then(r         => ({ name: 'Items',              ...r })),
+    parseQBDServices().then(r      => ({ name: 'Services',           ...r })),
+    parseQBDInvoices().then(r      => ({ name: 'Invoices',           ...r })),
+    parseQBDExpenses().then(r      => ({ name: 'Expenses',           ...r })),
+    parseQBDIncome().then(r        => ({ name: 'Income',             ...r })),
+    parseQBDBills().then(r         => ({ name: 'Bills',              ...r })),
+    parseQBDCreditNotes().then(r   => ({ name: 'Credit Notes',       ...r })),
+    parseQBDJournalEntries().then(r=> ({ name: 'Journal Entries',    ...r })),
+    parseQBDInvoicePayments().then(r=>({ name: 'Invoice Payments',   ...r })),
+    parseQBDBillPayments().then(r  => ({ name: 'Bill Payments',      ...r })),
+  ]);
   return results.map(r => ({ name: r.name, file: r.file, total: r.output.length }));
 }
 

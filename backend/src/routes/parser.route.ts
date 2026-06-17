@@ -1,8 +1,14 @@
 import { Router } from 'express';
-import { runParseCOA, runParseClients, runParseVendors, runParseItems, runParseServices, runParseInvoices, runParseExpenses, runParseIncome, runParseBills, runParseCreditNotes, runParseJournalEntries, runParseInvoicePayments, runParseBillPayments, runParseAll } from '../controllers/parser.controller.js';
+import { runParseCOA, runParseClients, runParseVendors, runParseItems, runParseServices, runParseInvoices, runParseExpenses, runParseIncome, runParseBills, runParseCreditNotes, runParseJournalEntries, runParseInvoicePayments, runParseBillPayments, runParseAll, uploadQBDFile, downloadTemplate, listStoredFiles } from '../controllers/parser.controller.js';
 
 const router = Router();
 
+// File storage
+router.post('/upload/:filename',    uploadQBDFile);
+router.get('/template/:filename',   downloadTemplate);
+router.get('/files',                listStoredFiles);
+
+// Parse triggers
 router.post('/all',              runParseAll);
 router.post('/coa',              runParseCOA);
 router.post('/clients',          runParseClients);

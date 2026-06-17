@@ -40,11 +40,6 @@ services:
       FRESHBOOKS_BUSINESS_UUID:   ${FRESHBOOKS_BUSINESS_UUID:-}
       FRESHBOOKS_BUSINESS_ID:     ${FRESHBOOKS_BUSINESS_ID:-}
       FRONTEND_URL:               ${FRONTEND_URL:-http://localhost:1074}
-    volumes:
-      # Mount data folders from host — keeps files outside the container
-      - ./Excel Templates:/app/Excel Templates:ro
-      - ./QBD Exports:/app/QBD Exports:ro
-      - ./QBD Parsed:/app/QBD Parsed
     ports:
       - "1073:1073"
     command: >

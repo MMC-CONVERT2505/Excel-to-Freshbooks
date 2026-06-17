@@ -32,9 +32,6 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
 
-# Data directories — mounted as volumes at runtime (not baked into image)
-RUN mkdir -p "/app/Excel Templates" "/app/QBD Exports"
-
 EXPOSE 1073
 
 CMD ["node", "dist/index.js"]
