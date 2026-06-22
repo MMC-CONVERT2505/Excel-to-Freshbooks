@@ -19,8 +19,9 @@ FreshBooks Templates.rar
 
 # Project planning docs (local only)
 *.docx
-*.html
 *.rar
+*.html
+!frontend/index.html
 
 # Claude Code local config
 .claude/
