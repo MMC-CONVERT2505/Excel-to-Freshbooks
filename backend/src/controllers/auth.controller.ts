@@ -3,8 +3,7 @@ import { getAuthUrl, exchangeCodeForTokens, fetchAndSaveBusinessIds, saveBusines
 import prisma from '../lib/prisma.js';
 
 export function redirectToFreshBooks(req: Request, res: Response): void {
-  // Capture the caller's origin so the callback can redirect back to the right frontend
-  const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || process.env.FRONTEND_URL || 'http://localhost:1074';
+  const origin = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:1074';
   const url = getAuthUrl(origin);
   res.redirect(url);
 }
