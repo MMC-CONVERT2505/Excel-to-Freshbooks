@@ -2,9 +2,16 @@ import axios from 'axios';
 import prisma from '../lib/prisma.js';
 import { setBusinessConfig } from './freshbooks.service.js';
 
-export async function saveBusinessConfig(accountId: string, businessUuid: string, businessId: string, businessName?: string): Promise<void> {
-  await prisma.freshbooksToken.updateMany({
-    where:  { isCurrent: true },
+// Save business config onto a specific token (not the global isCurrent)
+export async function saveBusinessConfig(
+  accountId: string,
+  businessUuid: string,
+  businessId: string,
+  businessName: string | undefined,
+  tokenId: number,
+): Promise<void> {
+  await prisma.freshbooksToken.update({
+    where: { id: tokenId },
     data: {
       accountId, businessUuid, businessId,
       ...(businessName ? { companyLabel: businessName } : {}),
@@ -13,7 +20,12 @@ export async function saveBusinessConfig(accountId: string, businessUuid: string
   setBusinessConfig(accountId, businessUuid, businessId);
 }
 
-export async function fetchAndSaveBusinessIds(accessToken: string): Promise<any[]> {
+// Fetch /users/me from FreshBooks, auto-save if single business, store pending list if multiple.
+export async function fetchAndSaveBusinessIds(
+  accessToken: string,
+  tokenId: number,
+  sessionId: string,
+): Promise<any[]> {
   const res = await axios.get('https://api.freshbooks.com/auth/api/v1/users/me', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -27,18 +39,22 @@ export async function fetchAndSaveBusinessIds(accessToken: string): Promise<any[
 
   if (memberships.length === 1) {
     const biz = memberships[0].business;
-    await saveBusinessConfig(biz.account_id, biz.business_uuid, String(biz.id), biz.name);
+    await saveBusinessConfig(biz.account_id, biz.business_uuid, String(biz.id), biz.name, tokenId);
     console.log(`\n[AUTH] ✅ Auto-saved business: "${biz.name}"`);
     return memberships;
   }
 
-  // Multiple businesses — store in memory, frontend handles selection via UI
+  // Multiple businesses — store in the session so selectBusiness can read them per-user
   console.log(`\n[AUTH] ${memberships.length} businesses found — awaiting frontend selection.`);
   memberships.forEach((m, i) => {
     const biz = m.business;
     console.log(`  [${i}] ${biz.name}  (account_id=${biz.account_id})`);
   });
-  (global as any).__fbBusinesses = memberships;
+
+  await prisma.userSession.update({
+    where: { id: sessionId },
+    data:  { pendingBusinesses: memberships as any },
+  });
 
   return memberships;
 }
@@ -67,14 +83,14 @@ export function getAuthUrl(frontendOrigin?: string): string {
     'user:projects:read', 'user:projects:write',
   ].join(' ');
 
-  // Encode the caller's frontend origin in state so the callback knows where to redirect
   const state = frontendOrigin ? Buffer.from(frontendOrigin).toString('base64url') : '';
   const stateParam = state ? `&state=${encodeURIComponent(state)}` : '';
 
   return `https://my.freshbooks.com/service/auth/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}${stateParam}`;
 }
 
-export async function exchangeCodeForTokens(code: string) {
+// Exchange OAuth code for tokens, create FreshbooksToken + UserSession, return sessionId.
+export async function exchangeCodeForTokens(code: string): Promise<{ tokens: any; sessionId: string; tokenId: number }> {
   const response = await axios.post('https://api.freshbooks.com/auth/oauth/token', {
     grant_type:    'authorization_code',
     client_id:     process.env.FRESHBOOKS_CLIENT_ID,
@@ -83,24 +99,24 @@ export async function exchangeCodeForTokens(code: string) {
     redirect_uri:  process.env.FRESHBOOKS_REDIRECT_URI,
   });
 
-  const tokens = response.data;
+  const tokens    = response.data;
   const expiresAt = new Date((tokens.created_at + tokens.expires_in) * 1000);
 
-  // Deselect whichever company was current — new OAuth becomes the current one.
-  // Keep isActive=true on all tokens so history per company is preserved.
-  await prisma.freshbooksToken.updateMany({ where: { isCurrent: true }, data: { isCurrent: false } });
-
-  await prisma.freshbooksToken.create({
+  const token = await prisma.freshbooksToken.create({
     data: {
       accessToken:  tokens.access_token,
       refreshToken: tokens.refresh_token,
       tokenType:    tokens.token_type || 'Bearer',
       scope:        tokens.scope,
       expiresAt,
-      isActive:     true,
-      isCurrent:    true,
+      isActive:  true,
+      isCurrent: false,
     },
   });
 
-  return tokens;
+  const session = await prisma.userSession.create({
+    data: { tokenId: token.id, expiresAt },
+  });
+
+  return { tokens, sessionId: session.id, tokenId: token.id };
 }

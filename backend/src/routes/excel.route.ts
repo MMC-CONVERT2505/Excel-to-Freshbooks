@@ -127,9 +127,8 @@ function parseExcelBuffer(buffer: Buffer): Row[] {
   return toRow(XLSX.utils.sheet_to_json(ws, { defval: '' }) as any[]);
 }
 
-async function getCurrentTokenId(): Promise<number | null> {
-  const token = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
-  return token?.id ?? null;
+function getCurrentTokenId(req: any): number | null {
+  return (req as any).sessionTokenId ?? null;
 }
 
 // Read uploaded rows for an entity from DB (used by dry-run cross-checks)
@@ -674,7 +673,7 @@ router.post('/upload/:entityId', async (req, res, next) => {
       return res.status(400).json({ message: 'filename and contentBase64 are required.' });
 
     const rows      = parseExcelBuffer(decodeBase64(contentBase64));
-    const tokenId   = await getCurrentTokenId();
+    const tokenId   = getCurrentTokenId(req);
     const now       = new Date();
     const expiresAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 

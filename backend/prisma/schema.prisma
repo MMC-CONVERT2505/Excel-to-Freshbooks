@@ -89,16 +89,15 @@ model FreshbooksToken {
   businessId    String?
   // Mark old tokens inactive instead of deleting — audit trail
   isActive      Boolean   @default(true)
-  // isCurrent = the company currently selected for migration
-  // Only one token has isCurrent=true at a time; isActive=true on all stored tokens
   isCurrent     Boolean   @default(false)
-  companyLabel  String?   // e.g. "Acme Corp" — set by user after OAuth
+  companyLabel  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   refreshLogs   TokenRefreshLog[]
   runs          MigrationRun[]    @relation("RunTokens")
   sheets        UploadedSheet[]   @relation("SheetTokens")
+  sessions      UserSession[]
 
   @@index([isActive, expiresAt])
   @@index([isCurrent])
@@ -237,6 +236,19 @@ model StoredFile {
 enum StoredFileType {
   QBD_EXPORT
   EXCEL_TEMPLATE
+}
+
+// One row per browser session — UUID sent as X-Session-ID header.
+// Each session is isolated: its own token, uploaded sheets, migration runs.
+model UserSession {
+  id                String          @id @default(uuid())
+  tokenId           Int
+  token             FreshbooksToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  pendingBusinesses Json?           // stored temporarily when FreshBooks account has multiple businesses
+  createdAt         DateTime        @default(now())
+  expiresAt         DateTime
+
+  @@index([expiresAt])
 }
 
 model MigrationError {

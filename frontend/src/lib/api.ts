@@ -1,4 +1,5 @@
 import type { Issue } from '../data/entities';
+import { getSessionId } from './session.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1073';
 
@@ -23,7 +24,15 @@ export type MigrationResult = {
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  const sessionId = getSessionId();
+  const merged: RequestInit = {
+    ...init,
+    headers: {
+      ...(init?.headers as Record<string, string> | undefined),
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+    },
+  };
+  const res = await fetch(`${API_BASE}${path}`, merged);
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -169,7 +178,10 @@ export function getCreditMemos(): Promise<{ response: { result: { credit_notes: 
 export type BulkOpResult = { deleted?: number; updated?: number; failed: number; errors: string[] };
 
 export async function fbExportEntity(entity: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/freshbooks/export/${entity}`);
+  const sessionId = getSessionId();
+  const res = await fetch(`${API_BASE}/freshbooks/export/${entity}`, {
+    headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+  });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try { const b = await res.json(); message = b?.message || b?.error || message; } catch {}

@@ -32,14 +32,12 @@ type MigrationResult = {
   errors: { row: number; error: string }[];
 };
 
-// Read uploaded rows for an entity from DB (replaces readFile / readNewFile).
-// Rows were already normalised to strings at upload time.
-async function readUploadedRows(entityId: string): Promise<Row[]> {
-  const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
+// Read uploaded rows for an entity from DB, scoped to the caller's session token.
+async function readUploadedRows(entityId: string, tokenId: number | null): Promise<Row[]> {
   const sheet = await prisma.uploadedSheet.findFirst({
     where: {
       entity: entityId,
-      tokenId: currentToken?.id ?? null,
+      tokenId,
       expiresAt: { gt: new Date() },
     },
     orderBy: { uploadedAt: 'desc' },
@@ -136,7 +134,8 @@ async function runMigration(
   handler: (row: Row) => Promise<any>,
   getLabel: (row: Row) => string = () => '',
   isDuplicate: (row: Row) => boolean = () => false,
-  runId?: number
+  runId?: number,
+  tokenId?: number | null
 ): Promise<MigrationResult> {
   const tag = `[${entity.toUpperCase()}]`;
   const result: MigrationResult = { entity, total: rows.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
@@ -177,9 +176,8 @@ async function runMigration(
     : await prisma.migrationRun.findFirst({ where: { status: 'RUNNING' } });
 
   if (!activeRun) {
-    const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
     activeRun = await prisma.migrationRun.create({
-      data: { status: 'RUNNING', startedAt: new Date(), heartbeatAt: new Date(), tokenId: currentToken?.id },
+      data: { status: 'RUNNING', startedAt: new Date(), heartbeatAt: new Date(), tokenId: tokenId ?? null },
     });
   }
 
@@ -309,8 +307,8 @@ async function runMigration(
 
 // ─── CLIENTS ─────────────────────────────────────────────────────────────────
 
-export async function migrateClients(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('clients');
+export async function migrateClients(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('clients', tokenId);
 
   const existingRes = await getClients();
   const existingClients: any[] = existingRes?.response?.result?.clients || [];
@@ -344,8 +342,8 @@ export async function migrateClients(): Promise<MigrationResult> {
 
 // ─── ITEMS ───────────────────────────────────────────────────────────────────
 
-export async function migrateItems(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('items');
+export async function migrateItems(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('items', tokenId);
 
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
@@ -429,8 +427,8 @@ export async function deleteAllItems(): Promise<{ deleted: number; failed: numbe
 
 // ─── VENDORS ─────────────────────────────────────────────────────────────────
 
-export async function migrateVendors(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('vendors');
+export async function migrateVendors(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('vendors', tokenId);
 
   const existingVendorsRes = await getVendors();
   const existingVendors: any[] = existingVendorsRes?.response?.result?.bill_vendors || [];
@@ -462,8 +460,8 @@ export async function migrateVendors(): Promise<MigrationResult> {
 
 // ─── EXPENSES ────────────────────────────────────────────────────────────────
 
-export async function migrateExpenses(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('expenses');
+export async function migrateExpenses(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('expenses', tokenId);
 
   const catRes = await getExpenseCategories();
   const categories: any[] = catRes?.response?.result?.categories || [];
@@ -499,8 +497,8 @@ export async function migrateExpenses(): Promise<MigrationResult> {
 
 // ─── INVOICES ────────────────────────────────────────────────────────────────
 
-export async function migrateInvoices(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('invoices');
+export async function migrateInvoices(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('invoices', tokenId);
 
   // Load parsed client data for full-detail auto-creation
   let clientCsvRows: Row[] = [];
@@ -712,8 +710,8 @@ function mapPaymentType(qbdType: string): string {
   return QBD_PAYMENT_TYPE_MAP[qbdType.toLowerCase().trim()] || 'Check';
 }
 
-export async function migrateIncome(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('income');
+export async function migrateIncome(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('income', tokenId);
   return runMigration('income', rows, async (row) => {
     const fbCategory = mapIncomeCategory(row.category_name || '');
     const note = [row.note, row.category_name ? `[${row.category_name}]` : ''].filter(Boolean).join(' ');
@@ -730,8 +728,8 @@ export async function migrateIncome(): Promise<MigrationResult> {
 
 // ─── CREDIT NOTES ────────────────────────────────────────────────────────────
 
-export async function migrateCreditNotes(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('credit-notes');
+export async function migrateCreditNotes(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('credit-notes', tokenId);
 
   const clientRes = await getClients();
   const clients: any[] = clientRes?.response?.result?.clients || [];
@@ -850,8 +848,8 @@ export async function migrateCreditNotes(): Promise<MigrationResult> {
 
 // ─── BILLS ───────────────────────────────────────────────────────────────────
 
-export async function migrateBills(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('bills');
+export async function migrateBills(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('bills', tokenId);
 
   const vendorRes = await getVendors();
   const vendors: any[] = vendorRes?.response?.result?.bill_vendors || [];
@@ -983,8 +981,8 @@ export async function migrateBills(): Promise<MigrationResult> {
 
 // ─── BILL PAYMENTS ───────────────────────────────────────────────────────────
 
-export async function migrateBillPayments(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('bill-payments');
+export async function migrateBillPayments(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('bill-payments', tokenId);
 
   const billsRes = await getBills();
   const bills: any[] = billsRes?.response?.result?.bills || [];
@@ -1075,8 +1073,8 @@ export async function migrateBillPayments(): Promise<MigrationResult> {
 
 // ─── INVOICE PAYMENTS ────────────────────────────────────────────────────────
 
-export async function migrateInvoicePayments(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('invoice-payments');
+export async function migrateInvoicePayments(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('invoice-payments', tokenId);
 
   // Build fuzzy client name → clientid map
   const clientRes = await getClients();
@@ -1218,8 +1216,8 @@ function buildMaps(accounts: any[]): {
 }
 
 
-export async function migrateChartOfAccounts(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('chart-of-accounts');
+export async function migrateChartOfAccounts(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('chart-of-accounts', tokenId);
 
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
@@ -1331,8 +1329,8 @@ export async function migrateChartOfAccounts(): Promise<MigrationResult> {
 
 // ─── EXPENSE CATEGORIES ───────────────────────────────────────────────────────
 
-export async function migrateExpenseCategories(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('expense-categories');
+export async function migrateExpenseCategories(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('expense-categories', tokenId);
 
   const existingCatRes = await getExpenseCategories();
   const existingCats: any[] = existingCatRes?.response?.result?.categories || [];
@@ -1348,8 +1346,8 @@ export async function migrateExpenseCategories(): Promise<MigrationResult> {
 
 // ─── SERVICES ────────────────────────────────────────────────────────────────
 
-export async function migrateServices(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('services');
+export async function migrateServices(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('services', tokenId);
 
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
@@ -1386,8 +1384,8 @@ export async function migrateServices(): Promise<MigrationResult> {
 
 // ─── JOURNAL ENTRIES ─────────────────────────────────────────────────────────
 
-export async function migrateJournalEntries(): Promise<MigrationResult> {
-  const rows = await readUploadedRows('journal-entries');
+export async function migrateJournalEntries(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('journal-entries', tokenId);
 
   // Build FreshBooks COA number/name → UUID map
   const coaRes  = await getChartOfAccounts();
@@ -1480,25 +1478,25 @@ export async function migrateJournalEntries(): Promise<MigrationResult> {
   return result;
 }
 
-export async function migrateAll(): Promise<MigrationResult[]> {
+export async function migrateAll(tokenId: number | null = null): Promise<MigrationResult[]> {
   const allStart = Date.now();
   const results: MigrationResult[] = [];
 
   // Dependency-ordered: each entity depends on everything above it
-  results.push(await migrateChartOfAccounts());   // 1 — everything references COA
-  results.push(await migrateExpenseCategories()); // 2 — expenses need categories
-  results.push(await migrateClients());           // 3 — invoices/payments need clients
-  results.push(await migrateVendors());           // 4 — bills/payments need vendors
-  results.push(await migrateItems());             // 5 — invoices reference items
-  results.push(await migrateServices());          // 6 — invoices reference services
-  results.push(await migrateExpenses());          // 7 — standalone, needs categories
-  results.push(await migrateIncome());            // 8 — standalone
-  results.push(await migrateJournalEntries());    // 9 — references COA accounts
-  results.push(await migrateInvoices());          // 10 — needs clients, items, services
-  results.push(await migrateBills());             // 11 — needs vendors, categories
-  results.push(await migrateCreditNotes());       // 12 — needs clients
-  results.push(await migrateInvoicePayments());   // 13 — needs invoices to exist first
-  results.push(await migrateBillPayments());      // 14 — needs bills to exist first
+  results.push(await migrateChartOfAccounts(tokenId));   // 1 — everything references COA
+  results.push(await migrateExpenseCategories(tokenId)); // 2 — expenses need categories
+  results.push(await migrateClients(tokenId));           // 3 — invoices/payments need clients
+  results.push(await migrateVendors(tokenId));           // 4 — bills/payments need vendors
+  results.push(await migrateItems(tokenId));             // 5 — invoices reference items
+  results.push(await migrateServices(tokenId));          // 6 — invoices reference services
+  results.push(await migrateExpenses(tokenId));          // 7 — standalone, needs categories
+  results.push(await migrateIncome(tokenId));            // 8 — standalone
+  results.push(await migrateJournalEntries(tokenId));    // 9 — references COA accounts
+  results.push(await migrateInvoices(tokenId));          // 10 — needs clients, items, services
+  results.push(await migrateBills(tokenId));             // 11 — needs vendors, categories
+  results.push(await migrateCreditNotes(tokenId));       // 12 — needs clients
+  results.push(await migrateInvoicePayments(tokenId));   // 13 — needs invoices to exist first
+  results.push(await migrateBillPayments(tokenId));      // 14 — needs bills to exist first
 
   const totalMs   = Date.now() - allStart;
   const totalMins = Math.floor(totalMs / 60000);

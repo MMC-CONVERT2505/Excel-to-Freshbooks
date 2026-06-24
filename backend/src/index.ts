@@ -9,6 +9,7 @@ import parserRouter from './routes/parser.route.js';
 import excelRouter from './routes/excel.route.js';
 import { handleCallback } from './controllers/auth.controller.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { resolveSession } from './middleware/session.js';
 import { loadBusinessConfigFromDB } from './services/freshbooks.service.js';
 import prisma from './lib/prisma.js';
 
@@ -26,6 +27,7 @@ const PORT = process.env.PORT || 1073;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '75mb' }));
+app.use(resolveSession);
 app.use('/auth', authRouter);
 app.use('/freshbooks', freshbooksRouter);
 app.use('/migrate', migrationRouter);
@@ -56,6 +58,13 @@ async function cleanupExpiredSheets() {
   if (count > 0) console.log(`[CLEANUP] Deleted ${count} expired uploaded sheet(s).`);
 }
 
+async function cleanupExpiredSessions() {
+  const { count } = await prisma.userSession.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  if (count > 0) console.log(`[CLEANUP] Deleted ${count} expired session(s).`);
+}
+
 async function cleanupExpiredFiles() {
   const { count } = await prisma.storedFile.deleteMany({
     where: { expiresAt: { lt: new Date() } },
@@ -82,6 +91,7 @@ server.listen(PORT, async () => {
   }
   // Delete uploaded sheets and stored files that have passed their expiry
   try {
+    await cleanupExpiredSessions();
     await cleanupExpiredSheets();
     await cleanupExpiredFiles();
   } catch (err: any) {
@@ -89,6 +99,7 @@ server.listen(PORT, async () => {
   }
   // Re-run cleanup every 6 hours so long-running servers also purge stale data
   setInterval(async () => {
+    await cleanupExpiredSessions().catch(() => {});
     await cleanupExpiredSheets().catch(() => {});
     await cleanupExpiredFiles().catch(() => {});
   }, 6 * 60 * 60 * 1000);

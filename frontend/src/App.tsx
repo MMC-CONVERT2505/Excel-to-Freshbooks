@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
+import { setSessionId } from './lib/session.js';
 import { useApp } from './context/AppContext';
 import { useToast } from './context/ToastContext';
 import { MigrationProvider } from './context/MigrationContext';
@@ -43,8 +44,11 @@ function OAuthCallback() {
     ran.current = true;
 
     const auth     = params.get('auth');
+    const session  = params.get('session');
     const workflow = localStorage.getItem('oauth_workflow') || 'qbd';
     const name     = params.get('name') || '';
+
+    if (session) setSessionId(session);
 
     if (auth === 'connected') {
       setFbConnected(true);
