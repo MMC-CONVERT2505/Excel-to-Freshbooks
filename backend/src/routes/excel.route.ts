@@ -348,30 +348,6 @@ async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[],
   const id = entity.id;
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 
-  // Invoice customer_name must exist in clients file
-  if (id === 'invoices') {
-    const clientRows = await loadRowsFor('clients', tokenId);
-    if (clientRows.length) {
-      const clientNames = new Set<string>();
-      for (const r of clientRows) {
-        if (r.organization) clientNames.add(norm(String(r.organization)));
-        const full = `${r.fname || ''} ${r.lname || ''}`.trim();
-        if (full) clientNames.add(norm(full));
-      }
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const cust = String(rows[i].customer_name || '').trim();
-        if (!cust || seen.has(cust.toLowerCase())) continue;
-        if (!clientNames.has(norm(cust))) {
-          seen.add(cust.toLowerCase());
-          push(issues, i + 2, 'warning', 'customer_name', cust,
-            `"${cust}" not found in the uploaded Clients file.`,
-            'The migration will auto-create this client — verify the name is correct or add them to Clients first.');
-        }
-      }
-    }
-  }
-
   // Bill vendor_name must exist in vendors file
   if (id === 'bills') {
     const vendorRows = await loadRowsFor('vendors', tokenId);
@@ -457,30 +433,6 @@ async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[],
           push(issues, i + 2, 'error', 'bill_number', num,
             `Bill #${num} not found in the uploaded Bills file.`,
             'This payment will fail — add the bill to the Bills file or push Bills first.');
-      }
-    }
-  }
-
-  // Credit Notes: customer_name must exist in clients file
-  if (id === 'credit-notes') {
-    const clientRows = await loadRowsFor('clients', tokenId);
-    if (clientRows.length) {
-      const clientNames = new Set<string>();
-      for (const r of clientRows) {
-        if (r.organization) clientNames.add(norm(String(r.organization)));
-        const full = `${r.fname || ''} ${r.lname || ''}`.trim();
-        if (full) clientNames.add(norm(full));
-      }
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const cust = String(rows[i].customer_name || '').trim();
-        if (!cust || seen.has(cust.toLowerCase())) continue;
-        if (!clientNames.has(norm(cust))) {
-          seen.add(cust.toLowerCase());
-          push(issues, i + 2, 'error', 'customer_name', cust,
-            `"${cust}" not found in the uploaded Clients file.`,
-            'Credit notes cannot auto-create clients — push Clients first, or fix the name.');
-        }
       }
     }
   }
