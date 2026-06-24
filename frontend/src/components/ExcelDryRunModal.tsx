@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ExcelDryRunReport } from '../lib/api';
+import { downloadErrorSheet } from '../lib/api';
 
 interface Props {
   reports: ExcelDryRunReport[];
@@ -111,6 +112,15 @@ function EntityDetailModal({ report, onBack }: { report: ExcelDryRunReport; onBa
           <div style={{ flex:1, fontSize:12, color:'var(--text-3)', alignSelf:'center' }}>
             {shown.length} issue{shown.length !== 1 ? 's' : ''} shown
           </div>
+          {report.issues.some(i => i.row >= 2) && (
+            <button
+              className="btn btn--outline"
+              style={{ flex:'0 0 180px', marginRight:8 }}
+              onClick={() => downloadErrorSheet(report.entityId)}
+            >
+              Download Error Sheet
+            </button>
+          )}
           <button className="btn btn--primary" style={{ flex:'0 0 120px' }} onClick={onBack}>Back</button>
         </div>
       </div>

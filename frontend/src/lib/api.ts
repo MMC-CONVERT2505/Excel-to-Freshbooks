@@ -217,3 +217,20 @@ export function fbUpdateById(entity: string, id: string, body: Record<string, an
 export function fbBulkUpdate(entity: string): Promise<BulkOpResult> {
   return api<BulkOpResult>(`/freshbooks/record/bulk-update/${entity}`, { method: 'POST' });
 }
+
+export async function downloadErrorSheet(entityId: string): Promise<void> {
+  const sessionId = getSessionId();
+  const res = await fetch(`${API_BASE}/excel/errors/${entityId}`, {
+    headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+  });
+  if (!res.ok || res.status === 204) return;
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${entityId}-errors.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

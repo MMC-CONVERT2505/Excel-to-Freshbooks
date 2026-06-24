@@ -541,11 +541,10 @@ async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[],
     }
   }
 
-  // Negative amounts
+  // Negative amounts (invoices excluded — FreshBooks accepts negative line amounts)
   const AMOUNT_COLS: Record<string, string[]> = {
     'expenses':         ['amount'],
     'income':           ['amount'],
-    'invoices':         ['line_unit_cost'],
     'bills':            ['amount'],
     'credit-notes':     ['amt'],
     'invoice-payments': ['amount'],
@@ -682,6 +681,61 @@ router.post('/dry-run', async (req, res, next) => {
     );
 
     res.json({ reports });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── ERROR SHEET DOWNLOAD ─────────────────────────────────────────────────────
+// Returns an xlsx of only the rows that have validation issues, with an extra
+// "Error" column describing what is wrong. Used by the "Download Error Sheet"
+// button in the dry-run modal.
+router.get('/errors/:entityId', async (req, res, next) => {
+  try {
+    const entity = EXCEL_FILES[req.params.entityId];
+    if (!entity) return res.status(404).json({ message: 'Unknown entity.' });
+
+    const tokenId = getCurrentTokenId(req);
+    const sheet = await prisma.uploadedSheet.findFirst({
+      where: { entity: entity.id, tokenId },
+      orderBy: { uploadedAt: 'desc' },
+    });
+    if (!sheet) return res.status(404).json({ message: 'No uploaded file found for this entity.' });
+
+    const rows       = sheet.rows as Row[];
+    const inspection = await inspectEntity(entity, rows, tokenId);
+
+    // Group error messages by spreadsheet row number (row 2 = first data row)
+    const errorsByRow = new Map<number, string[]>();
+    for (const issue of inspection.issues) {
+      if (issue.row < 2) continue; // skip file-level column errors
+      const msgs = errorsByRow.get(issue.row) ?? [];
+      msgs.push(`[${issue.sev.toUpperCase()}] ${issue.field}: ${issue.msg}`);
+      errorsByRow.set(issue.row, msgs);
+    }
+
+    if (errorsByRow.size === 0) {
+      res.status(204).end();
+      return;
+    }
+
+    // Build output: original row data + Error column, sorted by row number
+    const errorRows = [...errorsByRow.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .flatMap(([rowNum, msgs]) => {
+        const idx = rowNum - 2;
+        if (idx < 0 || idx >= rows.length) return [];
+        return [{ ...rows[idx], Error: msgs.join(' | ') }];
+      });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(errorRows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Errors');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${entity.id}-errors.xlsx"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
