@@ -24,14 +24,14 @@ export const DEPS: Record<string, string[]> = {
   'vendors':           [],
   'income':            [],
   'expenses':          [],
-  'items':             ['chart-of-accounts'],
-  'services':          ['chart-of-accounts'],
-  'journal-entries':   ['chart-of-accounts'],
-  'invoices':          ['clients', 'items', 'services'],
-  'bills':             ['vendors'],
-  'credit-notes':      ['clients'],
-  'invoice-payments':  ['invoices'],
-  'bill-payments':     ['bills'],
+  'items':             [],
+  'services':          [],
+  'journal-entries':   [],
+  'invoices':          [],
+  'bills':             [],
+  'credit-notes':      [],
+  'invoice-payments':  [],
+  'bill-payments':     [],
 };
 
 export const TOTAL_RECORDS: Record<string, number> = {
