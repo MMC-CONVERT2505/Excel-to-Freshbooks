@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import freshbooksMark from '../assets/freshbooks-mark-transparent.png';
 import { getCompanies, switchCompany, updateCompanyLabel } from '../lib/api';
 import type { CompanyEntry } from '../lib/api';
+import { getSessionId } from '../lib/session.js';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1073';
 
@@ -86,7 +87,11 @@ export default function ConnectPage() {
   async function selectBusiness(index: number, name: string) {
     setSelecting(true);
     try {
-      const res = await fetch(`${API}/auth/select-business/${index}`);
+      const sessionId = getSessionId();
+      const res = await fetch(`${API}/auth/select-business/${index}`, {
+        method: 'POST',
+        headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+      });
       if (!res.ok) throw new Error(await res.text());
       setSelectedBiz(name);
       setFbConnected(true);
