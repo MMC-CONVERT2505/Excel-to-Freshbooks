@@ -50,8 +50,8 @@ async function readUploadedRows(entityId: string, tokenId: number | null): Promi
   return sheet.rows as Row[];
 }
 
-const DELAY_MS    = 150;  // delay between batches
-const CONCURRENCY = 12;   // workers per entity — with max 3 entities in parallel = ~36 total concurrent
+const DELAY_MS    = 200;  // ms delay between batches
+const CONCURRENCY = 25;   // parallel workers per batch
 const MAX_RETRIES = 4;
 
 // In-memory live progress for custom-loop migrations (invoices, bills, etc.) that don't
@@ -1413,62 +1413,66 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
   };
 
   liveProgress.set('journal-entries', { done: 0, total: entryGroups.length, startedAt: Date.now() });
-  console.log(`\n[JE] Starting migration — ${entryGroups.length} journal entries to push`);
+  console.log(`\n[JE] Starting migration — ${entryGroups.length} journal entries to push (${CONCURRENCY} workers)`);
 
-  for (let i = 0; i < entryGroups.length; i++) {
-    const [entryNum, lineRows] = entryGroups[i];
-    const label = `[JE] (${i + 1}/${entryGroups.length}) #${entryNum}`;
+  for (let i = 0; i < entryGroups.length; i += CONCURRENCY) {
+    const batch = entryGroups.slice(i, i + CONCURRENCY);
 
-    if (existingNums.has(entryNum.toLowerCase())) {
-      result.skipped++;
-      console.log(`${label} → ⚡ skipped (already exists)`);
-      continue;
-    }
+    await Promise.all(batch.map(async ([entryNum, lineRows], bi) => {
+      const idx   = i + bi;
+      const label = `[JE] (${idx + 1}/${entryGroups.length}) #${entryNum}`;
 
-    try {
-      const header = lineRows[0];
-      const rawDate = normalizeDate(header.date);
-      const [yyyy, mm, dd] = rawDate.split('-');
+      if (existingNums.has(entryNum.toLowerCase())) {
+        result.skipped++;
+        console.log(`${label} → ⚡ skipped (already exists)`);
+        return;
+      }
 
-      const details = lineRows.map((line) => {
-        // Look up account UUID: number first, then name
-        const num  = (line.account_number || '').trim();
-        const name = (line.account_name  || '').trim();
-        const accountId =
-          (num  && numberMap[num])                          ||
-          (name && numberMap[`name::${name.toLowerCase()}`]);
+      try {
+        const header = lineRows[0];
+        const rawDate = normalizeDate(header.date);
+        const [yyyy, mm, dd] = rawDate.split('-');
 
-        if (!accountId) throw new Error(`Account not found: "${num || name}"`);
+        const details = lineRows.map((line) => {
+          const num  = (line.account_number || '').trim();
+          const name = (line.account_name  || '').trim();
+          const accountId =
+            (num  && numberMap[num])                          ||
+            (name && numberMap[`name::${name.toLowerCase()}`]);
 
-        const debit  = parseFloat(line.debit  || '0') || 0;
-        const credit = parseFloat(line.credit || '0') || 0;
-        const amount = debit > 0 ? debit : credit;
-        const type   = debit > 0 ? 'TYPE_DEBIT' : 'TYPE_CREDIT';
+          if (!accountId) throw new Error(`Account not found: "${num || name}"`);
 
-        return {
-          accountId,
-          amount: { amount: amount.toFixed(2), code: line.currency_code || 'USD' },
-          type,
-        };
-      });
+          const debit  = parseFloat(line.debit  || '0') || 0;
+          const credit = parseFloat(line.credit || '0') || 0;
+          const amount = debit > 0 ? debit : credit;
+          const type   = debit > 0 ? 'TYPE_DEBIT' : 'TYPE_CREDIT';
 
-      await callWithRetry(() => createJournalEntry({
-        userEnteredDate:    { year: yyyy, month: mm, day: dd },
-        name:               header.name || entryNum,
-        journalEntryNumber: entryNum,
-        description:        header.description || '',
-        details,
-      }));
+          return {
+            accountId,
+            amount: { amount: amount.toFixed(2), code: line.currency_code || 'USD' },
+            type,
+          };
+        });
 
-      result.success++;
-      console.log(`${label} → ✓ pushed (${details.length} lines)`);
-    } catch (err: any) {
-      result.failed++;
-      const detail = err?.response?.data;
-      const errMsg = detail ? JSON.stringify(detail) : err.message;
-      result.errors.push({ row: i + 2, error: errMsg });
-      console.log(`${label} → ❌ failed: ${errMsg}`);
-    }
+        await callWithRetry(() => createJournalEntry({
+          userEnteredDate:    { year: yyyy, month: mm, day: dd },
+          name:               header.name || entryNum,
+          journalEntryNumber: entryNum,
+          description:        header.description || '',
+          details,
+        }));
+
+        result.success++;
+        console.log(`${label} → ✓ pushed (${details.length} lines)`);
+      } catch (err: any) {
+        result.failed++;
+        const detail = err?.response?.data;
+        const errMsg = detail ? JSON.stringify(detail) : err.message;
+        result.errors.push({ row: idx + 2, error: errMsg });
+        console.log(`${label} → ❌ failed: ${errMsg}`);
+      }
+    }));
+
     liveProgress.get('journal-entries')!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
