@@ -131,15 +131,6 @@ function getCurrentTokenId(req: any): number | null {
   return (req as any).sessionTokenId ?? null;
 }
 
-// Read uploaded rows for an entity from DB (used by dry-run cross-checks)
-async function loadRowsFor(entityId: string, tokenId: number | null): Promise<Row[]> {
-  const sheet = await prisma.uploadedSheet.findFirst({
-    where: { entity: entityId, tokenId: tokenId },
-    orderBy: { uploadedAt: 'desc' },
-  });
-  return sheet ? (sheet.rows as Row[]) : [];
-}
-
 // ── helpers ────────────────────────────────────────────────────────────────────
 function colLabel(req: string | string[]) {
   return Array.isArray(req) ? req.join(' or ') : req;
@@ -343,142 +334,9 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
   }
 }
 
-// ─── BATCH 2: cross-file validations — reads sibling sheets from DB ───────────
-async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[], tokenId: number | null) {
+// ─── BATCH 2: within-file validations (dates, blanks, currency, etc.) ────────
+async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[], _tokenId: number | null) {
   const id = entity.id;
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-
-  // Bill vendor_name must exist in vendors file
-  if (id === 'bills') {
-    const vendorRows = await loadRowsFor('vendors', tokenId);
-    if (vendorRows.length) {
-      const vendorNames = new Set(vendorRows.map(r => norm(String(r.vendor_name || ''))));
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const v = String(rows[i].vendor_name || '').trim();
-        if (!v || seen.has(v.toLowerCase())) continue;
-        if (!vendorNames.has(norm(v))) {
-          seen.add(v.toLowerCase());
-          push(issues, i + 2, 'warning', 'vendor_name', v,
-            `"${v}" not found in the uploaded Vendors file.`,
-            'The migration will auto-create this vendor — verify the name or add them to Vendors first.');
-        }
-      }
-    }
-  }
-
-  // Invoice Payments: bank_account_number must exist in COA
-  if (id === 'invoice-payments') {
-    const coaRows = await loadRowsFor('chart-of-accounts', tokenId);
-    if (coaRows.length) {
-      const coaNums = new Set(coaRows.map(r => String(r.number || '').trim()));
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const acct = String(rows[i].bank_account_number || '').trim();
-        if (!acct || seen.has(acct)) continue;
-        if (!coaNums.has(acct)) {
-          seen.add(acct);
-          push(issues, i + 2, 'error', 'bank_account_number', acct,
-            `Bank account "${acct}" not found in the uploaded Chart of Accounts.`,
-            'Push Chart of Accounts first or check the account number.');
-        }
-      }
-    }
-  }
-
-  // Invoice Payments: invoice_number must exist in invoices file
-  if (id === 'invoice-payments') {
-    const invoiceRows = await loadRowsFor('invoices', tokenId);
-    if (invoiceRows.length) {
-      const invoiceNums = new Set(invoiceRows.map(r => String(r.invoice_number || '').toLowerCase().trim()));
-      for (let i = 0; i < rows.length; i++) {
-        const num = String(rows[i].invoice_number || '').trim();
-        if (!num) continue;
-        if (!invoiceNums.has(num.toLowerCase()))
-          push(issues, i + 2, 'error', 'invoice_number', num,
-            `Invoice #${num} not found in the uploaded Invoices file.`,
-            'This payment will fail — add the invoice to the Invoices file or push Invoices first.');
-      }
-    }
-  }
-
-  // Bill Payments: bank_account_number must exist in COA
-  if (id === 'bill-payments') {
-    const coaRows = await loadRowsFor('chart-of-accounts', tokenId);
-    if (coaRows.length) {
-      const coaNums = new Set(coaRows.map(r => String(r.number || '').trim()));
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const acct = String(rows[i].bank_account_number || '').trim();
-        if (!acct || seen.has(acct)) continue;
-        if (!coaNums.has(acct)) {
-          seen.add(acct);
-          push(issues, i + 2, 'error', 'bank_account_number', acct,
-            `Bank account "${acct}" not found in the uploaded Chart of Accounts.`,
-            'Push Chart of Accounts first or check the account number.');
-        }
-      }
-    }
-  }
-
-  // Bill Payments: bill_number must exist in bills file
-  if (id === 'bill-payments') {
-    const billRows = await loadRowsFor('bills', tokenId);
-    if (billRows.length) {
-      const billNums = new Set(billRows.map(r => String(r.bill_number || '').toLowerCase().trim()));
-      for (let i = 0; i < rows.length; i++) {
-        const num = String(rows[i].bill_number || '').trim();
-        if (!num) continue;
-        if (!billNums.has(num.toLowerCase()))
-          push(issues, i + 2, 'error', 'bill_number', num,
-            `Bill #${num} not found in the uploaded Bills file.`,
-            'This payment will fail — add the bill to the Bills file or push Bills first.');
-      }
-    }
-  }
-
-  // Items / Services: income_account_number must exist in COA
-  if (id === 'items' || id === 'services') {
-    const coaRows = await loadRowsFor('chart-of-accounts', tokenId);
-    if (coaRows.length) {
-      const coaNums  = new Set(coaRows.map(r => String(r.number || '').trim()));
-      const coaNames = new Set(coaRows.map(r => norm(String(r.name || ''))));
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const acct = String(rows[i].income_account_number || '').trim();
-        if (!acct || seen.has(acct)) continue;
-        if (!coaNums.has(acct) && !coaNames.has(norm(acct))) {
-          seen.add(acct);
-          push(issues, i + 2, 'warning', 'income_account_number', acct,
-            `Account "${acct}" not found in the uploaded Chart of Accounts.`,
-            'Push Chart of Accounts first or check the account number.');
-        }
-      }
-    }
-  }
-
-  // Journal Entries: account_number / account_name must exist in COA
-  if (id === 'journal-entries') {
-    const coaRows = await loadRowsFor('chart-of-accounts', tokenId);
-    if (coaRows.length) {
-      const coaNums  = new Set(coaRows.map(r => String(r.number || '').trim()));
-      const coaNames = new Set(coaRows.map(r => norm(String(r.name || ''))));
-      const seen = new Set<string>();
-      for (let i = 0; i < rows.length; i++) {
-        const num  = String(rows[i].account_number || '').trim();
-        const name = String(rows[i].account_name  || '').trim();
-        const key  = num || name;
-        if (!key || seen.has(key.toLowerCase())) continue;
-        const found = (num && coaNums.has(num)) || (name && coaNames.has(norm(name)));
-        if (!found) {
-          seen.add(key.toLowerCase());
-          push(issues, i + 2, 'error', num ? 'account_number' : 'account_name', key,
-            `Account "${key}" not found in the uploaded Chart of Accounts.`,
-            'Push Chart of Accounts first or correct the account reference.');
-        }
-      }
-    }
-  }
 
   // Empty trailing rows
   const reqCols = entity.required.flatMap(r => Array.isArray(r) ? r : [r]);
