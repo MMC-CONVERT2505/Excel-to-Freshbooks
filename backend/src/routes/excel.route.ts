@@ -513,7 +513,7 @@ router.post('/upload/:entityId', async (req, res, next) => {
 router.post('/dry-run', async (req, res, next) => {
   try {
     const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : Object.keys(EXCEL_FILES);
-    const tokenId = await getCurrentTokenId();
+    const tokenId = getCurrentTokenId(req);
 
     const reports = await Promise.all(
       ids

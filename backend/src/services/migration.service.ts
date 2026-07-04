@@ -502,7 +502,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
 
   // Load parsed client data for full-detail auto-creation
   let clientCsvRows: Row[] = [];
-  try { clientCsvRows = await readUploadedRows('clients'); } catch { clientCsvRows = []; }
+  try { clientCsvRows = await readUploadedRows('clients', tokenId); } catch { clientCsvRows = []; }
   const clientCsvByName: Record<string, Row> = {};
   for (const r of clientCsvRows) {
     const org  = (r.organization || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();

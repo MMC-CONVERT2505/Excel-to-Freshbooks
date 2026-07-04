@@ -80,7 +80,7 @@ export async function selectBusiness(req: Request, res: Response): Promise<void>
   await saveBusinessConfig(biz.account_id, biz.business_uuid, String(biz.id), biz.name, tokenId);
 
   // Clear pending businesses now that selection is done
-  await prisma.userSession.update({ where: { id: sessionId }, data: { pendingBusinesses: null } });
+  await prisma.userSession.update({ where: { id: sessionId }, data: { pendingBusinesses: undefined } });
 
   console.log(`\n[AUTH] ✅ Selected: "${biz.name}" for session ${sessionId}\n`);
   res.json({ message: `Selected "${biz.name}".`, business: biz });
