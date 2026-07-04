@@ -344,6 +344,11 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
         if (p.status !== 'RUNNING' && p.entity)
           saveStoredResult(p.entity, { entity: p.entity, total: p.total, success: p.success, skipped: p.skipped, failed: p.failed, durationMs: p.durationMs, errors: p.errors });
       applyPhases(phases);
+      const running = phases.filter(p => p.status === 'RUNNING');
+      if (running.length > 0) {
+        const names = running.map(p => ENTITIES.find(e => e.id === p.entity)?.name ?? p.entity).join(', ');
+        toast('warning', 'Migration in progress', `${names} is still running — go to Migration Tracker to monitor.`);
+      }
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
