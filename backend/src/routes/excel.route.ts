@@ -239,6 +239,26 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
     }
   }
 
+  // Invoices: invoice_number max 30 chars + no invalid special characters
+  if (id === 'invoices') {
+    const invalidNumChars = /[^a-zA-Z0-9 #,./: _-]/;
+    const seen = new Set<string>();
+    for (let i = 0; i < rows.length; i++) {
+      const num = String(rows[i].invoice_number || '').trim();
+      if (!num || seen.has(num)) continue;
+      seen.add(num);
+      if (num.length > 30)
+        push(issues, i + 2, 'error', 'invoice_number', num,
+          `Invoice number "${num}" exceeds 30 characters (${num.length}).`,
+          'Shorten the invoice number to 30 characters or less.');
+      const m = num.match(invalidNumChars);
+      if (m)
+        push(issues, i + 2, 'error', 'invoice_number', num,
+          `Invoice number "${num}" contains invalid character "${m[0]}".`,
+          'Only letters, numbers, and  # , . / : _ -  are allowed.');
+    }
+  }
+
   // Invoices: same invoice_number but different customer_name = data corruption
   if (id === 'invoices') {
     const invoiceCustomer: Record<string, string> = {};
