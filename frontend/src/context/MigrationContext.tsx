@@ -88,15 +88,16 @@ function clearRunning(id: string) {
 
 // ── context shape ─────────────────────────────────────────────────────────────
 interface MigCtx {
-  entities:     Entity[];
-  pushMap:      Record<string, PushState>;
-  resultMap:    Record<string, MigrationResult>;
+  entities:      Entity[];
+  pushMap:       Record<string, PushState>;
+  resultMap:     Record<string, MigrationResult>;
   sessionPushed: Set<string>;
-  startTimes:   Record<string, number>;
-  pushEntity:   (id: string, disableAnim?: boolean) => Promise<void>;
-  cancelEntity: (id: string) => Promise<void>;
-  runAll:       () => Promise<void>;
-  canPush:      (id: string) => { ok: boolean; missing: { id: string; name: string }[] };
+  startTimes:    Record<string, number>;
+  statusChecked: boolean;
+  pushEntity:    (id: string, disableAnim?: boolean) => Promise<void>;
+  cancelEntity:  (id: string) => Promise<void>;
+  runAll:        () => Promise<void>;
+  canPush:       (id: string) => { ok: boolean; missing: { id: string; name: string }[] };
 }
 
 const Ctx = createContext<MigCtx | null>(null);
@@ -129,10 +130,11 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
     });
   });
 
-  const [pushMap, setPushMap] = useState<Record<string, PushState>>({});
+  const [pushMap, setPushMap]     = useState<Record<string, PushState>>({});
   const [resultMap, setResultMap] = useState<Record<string, MigrationResult>>(() =>
     workflow === 'excel' ? loadStoredResults() : {}
   );
+  const [statusChecked, setStatusChecked] = useState(workflow !== 'excel');
 
   const ivRefs      = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const startTRef   = useRef<Record<string, number>>({});
@@ -339,17 +341,19 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
   useEffect(() => {
     if (workflow !== 'excel') return;
     getMigrationStatus().then(({ phases }) => {
-      if (!phases.length) return;
-      for (const p of phases)
-        if (p.status !== 'RUNNING' && p.entity)
-          saveStoredResult(p.entity, { entity: p.entity, total: p.total, success: p.success, skipped: p.skipped, failed: p.failed, durationMs: p.durationMs, errors: p.errors });
-      applyPhases(phases);
-      const running = phases.filter(p => p.status === 'RUNNING');
-      if (running.length > 0) {
-        const names = running.map(p => ENTITIES.find(e => e.id === p.entity)?.name ?? p.entity).join(', ');
-        toast('warning', 'Migration in progress', `${names} is still running — go to Migration Tracker to monitor.`);
+      if (phases.length) {
+        for (const p of phases)
+          if (p.status !== 'RUNNING' && p.entity)
+            saveStoredResult(p.entity, { entity: p.entity, total: p.total, success: p.success, skipped: p.skipped, failed: p.failed, durationMs: p.durationMs, errors: p.errors });
+        applyPhases(phases);
+        const running = phases.filter(p => p.status === 'RUNNING');
+        if (running.length > 0) {
+          const names = running.map(p => ENTITIES.find(e => e.id === p.entity)?.name ?? p.entity).join(', ');
+          toast('warning', 'Migration in progress', `${names} is still running — go to Migration Tracker to monitor.`);
+        }
       }
-    }).catch(() => {});
+      setStatusChecked(true);
+    }).catch(() => { setStatusChecked(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -367,6 +371,7 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
       entities, pushMap, resultMap,
       sessionPushed: sessRef.current,
       startTimes:    startTRef.current,
+      statusChecked,
       pushEntity, cancelEntity, runAll, canPush,
     }}>
       {children}

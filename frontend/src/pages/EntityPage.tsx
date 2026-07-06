@@ -19,7 +19,7 @@ export default function EntityPage() {
   const { entityId, workflow = 'excel' } = useParams<{ entityId: string; workflow: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { entities, pushMap, resultMap, pushEntity, cancelEntity, canPush, startTimes, sessionPushed } = useMigration();
+  const { entities, pushMap, resultMap, pushEntity, cancelEntity, canPush, startTimes, sessionPushed, statusChecked } = useMigration();
   const { fbConnected, uploaded, setUploaded } = useApp();
   const { toast } = useToast();
 
@@ -77,7 +77,7 @@ export default function EntityPage() {
   const elapsed = startT && entity.status === 'running'
     ? `${((Date.now() - startT) / 1000).toFixed(1)}s` : null;
 
-  const canGo = fbConnected && depsOk
+  const canGo = fbConnected && depsOk && statusChecked
     && (workflow !== 'excel' || !!fileInfo)
     && entity.status !== 'running';
 
