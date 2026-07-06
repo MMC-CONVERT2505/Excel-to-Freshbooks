@@ -59,7 +59,7 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 export async function uploadExcelFile(entityId: string, file: File): Promise<ExcelDryRunReport> {
-  return api<ExcelDryRunReport>(`/excel/upload/${entityId}`, {
+  return api<ExcelDryRunReport>(`/api/excel/upload/${entityId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -70,7 +70,7 @@ export async function uploadExcelFile(entityId: string, file: File): Promise<Exc
 }
 
 export async function dryRunExcel(ids: string[]): Promise<ExcelDryRunReport[]> {
-  const body = await api<{ reports: ExcelDryRunReport[] }>('/excel/dry-run', {
+  const body = await api<{ reports: ExcelDryRunReport[] }>('/api/excel/dry-run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids }),
@@ -220,7 +220,7 @@ export function fbBulkUpdate(entity: string): Promise<BulkOpResult> {
 
 export async function downloadErrorSheet(entityId: string): Promise<void> {
   const sessionId = getSessionId();
-  const res = await fetch(`${API_BASE}/excel/errors/${entityId}`, {
+  const res = await fetch(`${API_BASE}/api/excel/errors/${entityId}`, {
     headers: sessionId ? { 'X-Session-ID': sessionId } : {},
   });
   if (!res.ok || res.status === 204) return;
