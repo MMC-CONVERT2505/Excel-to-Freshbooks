@@ -359,12 +359,14 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
 
   const hasRunning = entities.some(e => e.status === 'running');
   useEffect(() => {
-    if (!hasRunning || workflow !== 'excel') return;
+    if (workflow !== 'excel' || !statusChecked) return;
+    // 1s when running (live progress), 5s when idle (cross-tab sync)
+    const interval = hasRunning ? 1000 : 5000;
     const iv = setInterval(() =>
-      getMigrationStatus().then(({ phases }) => applyPhases(phases)).catch(() => {}), 1000);
+      getMigrationStatus().then(({ phases }) => applyPhases(phases)).catch(() => {}), interval);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasRunning]);
+  }, [hasRunning, statusChecked]);
 
   return (
     <Ctx.Provider value={{
