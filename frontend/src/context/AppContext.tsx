@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getSessionId } from '../lib/session.js';
 import type { ReactNode } from 'react';
 
 export type Workflow = 'qbd' | 'excel';
@@ -109,7 +110,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    fetch(`${API}/auth/status`)
+    const sessionId = getSessionId();
+    fetch(`${API}/auth/status`, {
+      headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+    })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(data => {
         if (typeof data.connected === 'boolean') setFbConnected(data.connected);
