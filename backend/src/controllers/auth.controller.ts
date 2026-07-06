@@ -105,13 +105,15 @@ export async function getAuthStatus(req: Request, res: Response): Promise<void> 
   });
 }
 
-export async function getCompanies(_req: Request, res: Response): Promise<void> {
-  const tokens = await prisma.freshbooksToken.findMany({
-    where:   { isActive: true },
-    orderBy: { createdAt: 'desc' },
-    select:  { id: true, accountId: true, businessId: true, companyLabel: true, isCurrent: true, createdAt: true },
+export async function getCompanies(req: Request, res: Response): Promise<void> {
+  const tokenId = (req as any).sessionTokenId as number | undefined;
+  if (!tokenId) { res.json({ companies: [] }); return; }
+
+  const token = await prisma.freshbooksToken.findUnique({
+    where:  { id: tokenId },
+    select: { id: true, accountId: true, businessId: true, companyLabel: true, isCurrent: true, createdAt: true },
   });
-  res.json({ companies: tokens });
+  res.json({ companies: token ? [token] : [] });
 }
 
 export async function switchCompany(req: Request, res: Response): Promise<void> {
