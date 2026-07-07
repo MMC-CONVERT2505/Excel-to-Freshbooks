@@ -33,6 +33,9 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
 
+# Copy admin scripts (run with: npx tsx scripts/create-user.ts ...)
+COPY --from=builder /app/scripts ./scripts
+
 EXPOSE 1073
 
 CMD ["node", "dist/index.js"]
