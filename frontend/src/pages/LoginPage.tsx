@@ -45,9 +45,18 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="landing">
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--bg, #F4F5F9)',
+      padding: '24px 16px',
+    }}>
       <div className="landing__bg" />
-      <div className="landing__inner" style={{ alignItems: 'center' }}>
+
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
 
         <div className="landing__brand">
           <img src="/nlogosmall.png" alt="MMC Convert" className="landing__logo" />
@@ -56,20 +65,19 @@ export default function LoginPage() {
         <div style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
-          borderRadius: 12,
+          borderRadius: 14,
           padding: '36px 40px',
           width: '100%',
-          maxWidth: 400,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+          boxShadow: '0 4px 28px rgba(0,0,0,0.13)',
         }}>
-          <h2 style={{ margin: '0 0 6px', fontSize: 20, fontWeight: 700, color: 'var(--text-1)' }}>
+          <h2 style={{ margin: '0 0 6px', fontSize: 20, fontWeight: 700, color: 'var(--text-1)', textAlign: 'center' }}>
             Sign in to your account
           </h2>
-          <p style={{ margin: '0 0 24px', fontSize: 13, color: 'var(--text-3)' }}>
+          <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-3)', textAlign: 'center' }}>
             Enter your credentials to continue
           </p>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email</label>
               <input
@@ -108,14 +116,14 @@ export default function LoginPage() {
               type="submit"
               className="btn btn--primary"
               disabled={loading}
-              style={{ marginTop: 4 }}
+              style={{ marginTop: 4, width: '100%', height: 42 }}
             >
               {loading ? 'Signing in…' : 'Sign in →'}
             </button>
           </form>
         </div>
 
-        <p className="landing__foot">MMC Convert · Data Migration Platform</p>
+        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0 }}>MMC Convert · Data Migration Platform</p>
       </div>
     </div>
   );
