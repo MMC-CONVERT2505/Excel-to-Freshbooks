@@ -36,6 +36,11 @@ function clientNameVariants(name: string): string[] {
   return [...new Set([lower, norm, noSpace, wordSorted])].filter(Boolean);
 }
 
+// FreshBooks only allows [a-zA-Z0-9 . -] in journal entry numbers — sanitize everything else to dash.
+function sanitizeJeNumber(s: string): string {
+  return s.replace(/[^a-zA-Z0-9.\-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '') || 'JE';
+}
+
 type MigrationResult = {
   entity: string;
   total: number;
@@ -1067,31 +1072,49 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
 
     if (!billid) throw new Error(`Bill not found for vendor "${row.vendor_name}" — no matching bill for $${row.amount}`);
 
+    const billTypeMap: Record<string, string> = {
+      'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
+      'credit card': 'Credit', 'credit': 'Credit',
+      'visa': 'Visa', 'mastercard': 'Mastercard', 'master card': 'Mastercard',
+      'amex': 'Amex', 'american express': 'Amex',
+      'discover': 'Discover', 'diners': 'Diners', 'jcb': 'JCB',
+      'paypal': 'PayPal', 'bitcoin': 'Bitcoin',
+      'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
+      'wire': 'Check', 'wire transfer': 'Check',
+      'bank transfer': 'Check', 'electronic check': 'Check', 'echeck': 'Check',
+    };
+    const rawBillType  = (row.payment_type || '').toLowerCase().trim();
+    const safeBillType = billTypeMap[rawBillType] || 'Check';
+
     await createBillPayment({
       billid,
       amount: { amount: row.amount, code: row.currency_code || 'USD' },
       paid_date: normalizeDate(row.paid_date),
-      payment_type: row.payment_type || 'Check',
+      payment_type: safeBillType,
       note: row.note,
     });
 
-    // Create offsetting journal entry: Debit Petty Cash, Credit bank account (money going out)
+    // Create offsetting journal entry — wrapped separately so JE failure doesn't undo the payment.
     const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
     if (pettyCashUuid && bankUuid) {
       const n = ++jeCounter;
       const [yyyy, mm, dd] = normalizeDate(row.paid_date).split('-');
       const billRef = row.bill_number || `BILL-${n}`;
-      await callWithRetry(() => createJournalEntry({
-        userEnteredDate:    { year: yyyy, month: mm, day: dd },
-        name:               billRef,
-        journalEntryNumber: `BILL ${n}`,
-        description:        billRef,
-        details: [
-          { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
-          { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
-        ],
-      }));
-      console.log(`[BILL-PAY] JE "BILL ${n}" created — offset petty cash for ${billRef}`);
+      try {
+        await callWithRetry(() => createJournalEntry({
+          userEnteredDate:    { year: yyyy, month: mm, day: dd },
+          name:               billRef,
+          journalEntryNumber: `BILL-${n}`,
+          description:        billRef,
+          details: [
+            { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
+            { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
+          ],
+        }));
+        console.log(`[BILL-PAY] JE "BILL-${n}" created — offset petty cash for ${billRef}`);
+      } catch (jeErr: any) {
+        console.warn(`[BILL-PAY] ⚠ Petty cash JE skipped for ${billRef}: ${jeErr?.message}`);
+      }
     } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
       console.warn(`[BILL-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.bill_number}`);
     }
@@ -1171,31 +1194,51 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
       invoiceid = matched.id;
     }
 
+    // Map common QBD payment types to FreshBooks-safe values (no spaces or slashes)
+    const typeMap: Record<string, string> = {
+      'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
+      'credit card': 'Credit', 'credit': 'Credit',
+      'visa': 'Visa', 'mastercard': 'Mastercard', 'master card': 'Mastercard',
+      'amex': 'Amex', 'american express': 'Amex',
+      'discover': 'Discover', 'diners': 'Diners', 'jcb': 'JCB',
+      'paypal': 'PayPal', 'bitcoin': 'Bitcoin',
+      'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
+      'wire': 'Check', 'wire transfer': 'Check',
+      'bank transfer': 'Check', 'electronic check': 'Check', 'echeck': 'Check',
+    };
+    const rawType   = (row.payment_type || '').toLowerCase().trim();
+    const safeType  = typeMap[rawType] || 'Check';
+
     await createPayment({
       invoiceid,
       amount: { amount: row.amount, code: row.currency_code || 'USD' },
       date: normalizeDate(row.date),
-      type: row.payment_type || 'Check',
+      type: safeType,
       note: row.note,
     });
 
-    // Create offsetting journal entry: Debit bank account, Credit Petty Cash
+    // Create offsetting journal entry: Debit bank account, Credit Petty Cash.
+    // Wrapped in its own try/catch — a JE failure should not roll back a successfully recorded payment.
     const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
     if (pettyCashUuid && bankUuid) {
-      const n = ++jeCounter; // synchronous — safe under concurrent async batches
+      const n = ++jeCounter;
       const [yyyy, mm, dd] = normalizeDate(row.date).split('-');
       const invoiceRef = row.invoice_number || `INV-${n}`;
-      await callWithRetry(() => createJournalEntry({
-        userEnteredDate:    { year: yyyy, month: mm, day: dd },
-        name:               invoiceRef,
-        journalEntryNumber: `INV ${n}`,
-        description:        invoiceRef,
-        details: [
-          { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
-          { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
-        ],
-      }));
-      console.log(`[INV-PAY] JE "INV ${n}" created — offset petty cash for ${invoiceRef}`);
+      try {
+        await callWithRetry(() => createJournalEntry({
+          userEnteredDate:    { year: yyyy, month: mm, day: dd },
+          name:               invoiceRef,
+          journalEntryNumber: `INV-${n}`,
+          description:        invoiceRef,
+          details: [
+            { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
+            { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
+          ],
+        }));
+        console.log(`[INV-PAY] JE "INV-${n}" created — offset petty cash for ${invoiceRef}`);
+      } catch (jeErr: any) {
+        console.warn(`[INV-PAY] ⚠ Petty cash JE skipped for ${invoiceRef}: ${jeErr?.message}`);
+      }
     } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
       console.warn(`[INV-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.invoice_number}`);
     }
@@ -1484,7 +1527,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
         await callWithRetry(() => createJournalEntry({
           userEnteredDate:    { year: yyyy, month: mm, day: dd },
           name:               header.name || entryNum,
-          journalEntryNumber: entryNum,
+          journalEntryNumber: sanitizeJeNumber(entryNum),
           description:        header.description || '',
           details,
         }));
