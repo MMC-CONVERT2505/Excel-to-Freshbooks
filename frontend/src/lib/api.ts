@@ -1,5 +1,6 @@
 import type { Issue } from '../data/entities';
 import { getSessionId } from './session.js';
+import { getAppToken } from './appAuth.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1073';
 
@@ -25,11 +26,13 @@ export type MigrationResult = {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const sessionId = getSessionId();
+  const appToken  = getAppToken();
   const merged: RequestInit = {
     ...init,
     headers: {
       ...(init?.headers as Record<string, string> | undefined),
       ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
     },
   };
   const res = await fetch(`${API_BASE}${path}`, merged);
@@ -179,8 +182,12 @@ export type BulkOpResult = { deleted?: number; updated?: number; failed: number;
 
 export async function fbExportEntity(entity: string): Promise<void> {
   const sessionId = getSessionId();
+  const appToken  = getAppToken();
   const res = await fetch(`${API_BASE}/freshbooks/export/${entity}`, {
-    headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+    headers: {
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
+    },
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
@@ -220,8 +227,12 @@ export function fbBulkUpdate(entity: string): Promise<BulkOpResult> {
 
 export async function downloadErrorSheet(entityId: string): Promise<void> {
   const sessionId = getSessionId();
+  const appToken  = getAppToken();
   const res = await fetch(`${API_BASE}/api/excel/errors/${entityId}`, {
-    headers: sessionId ? { 'X-Session-ID': sessionId } : {},
+    headers: {
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
+    },
   });
   if (!res.ok || res.status === 204) return;
   const blob = await res.blob();

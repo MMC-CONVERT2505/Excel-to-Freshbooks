@@ -156,6 +156,10 @@ a{color:inherit;text-decoration:none;}
 .wf-indicator__meta b{display:block;font-size:12.5px;font-weight:700;color:var(--blue-hover);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wf-indicator__change{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--blue);transition:all var(--ease);flex-shrink:0;}
 .wf-indicator__change:hover{background:var(--surface);transform:rotate(-45deg);}
+.sidebar__user{margin:4px 12px 10px;padding:9px 11px;background:var(--surface-2,#F3F4F6);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.sidebar__user-info{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sidebar__logout{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--text-3);padding:4px 7px;border-radius:6px;transition:background var(--ease),color var(--ease);flex-shrink:0;}
+.sidebar__logout:hover{background:var(--error-light,#FEE2E5);color:var(--error,#CE2C3F);}
 
 /* HEADER */
 .main{flex:1;margin-left:var(--sidebar-w);display:flex;flex-direction:column;min-width:0;}
@@ -183,6 +187,11 @@ a{color:inherit;text-decoration:none;}
 .fb-chip.pending .fb-chip__dot{background:var(--warning);animation:blink 1s ease-in-out infinite;}
 @keyframes pulse-ring{0%{transform:scale(.8);opacity:.5;}100%{transform:scale(2.6);opacity:0;}}
 @keyframes blink{50%{opacity:.3;}}
+
+/* INPUTS */
+.input{width:100%;height:40px;border:1px solid var(--border);border-radius:var(--r-input);padding:0 12px;font-size:13px;color:var(--text-1);background:var(--surface);transition:border-color var(--ease),box-shadow var(--ease);}
+.input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(67,56,202,.12);}
+.input:disabled{opacity:.55;cursor:not-allowed;}
 
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:8px;justify-content:center;height:38px;padding:0 16px;border-radius:var(--r-input);font-weight:600;font-size:13px;white-space:nowrap;transition:all var(--ease);}

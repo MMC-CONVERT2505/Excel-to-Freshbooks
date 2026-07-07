@@ -40,6 +40,7 @@ services:
       FRESHBOOKS_BUSINESS_UUID:   ${FRESHBOOKS_BUSINESS_UUID:-}
       FRESHBOOKS_BUSINESS_ID:     ${FRESHBOOKS_BUSINESS_ID:-}
       FRONTEND_URL:               ${FRONTEND_URL:-http://localhost:1074}
+      APP_JWT_SECRET:             ${APP_JWT_SECRET}
     ports:
       - "1073:1073"
     command: >

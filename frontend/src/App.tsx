@@ -1,12 +1,14 @@
-import { Routes, Route, Navigate, useSearchParams, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useSearchParams, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { setSessionId } from './lib/session.js';
+import { isLoggedIn } from './lib/appAuth.js';
 import { useApp } from './context/AppContext';
 import { useToast } from './context/ToastContext';
 import { MigrationProvider } from './context/MigrationContext';
 import Landing from './components/Landing';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import LoginPage from './pages/LoginPage';
 import ConnectPage from './pages/ConnectPage';
 import UploadPage from './pages/UploadPage';
 import TrackerPage from './pages/TrackerPage';
@@ -28,6 +30,14 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
+  }
+  return <>{children}</>;
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  if (!isLoggedIn()) {
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
   return <>{children}</>;
 }
@@ -100,16 +110,17 @@ export default function App() {
     <AuthCheck>
       <Routes>
         <Route path="/"               element={<Landing />} />
+        <Route path="/login"          element={<LoginPage />} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
         <Route path="/:workflow"      element={<Navigate to="connect" replace />} />
-        <Route path="/:workflow/connect" element={<AppLayout><ConnectPage /></AppLayout>} />
-        <Route path="/:workflow/upload"  element={<AppLayout><UploadPage /></AppLayout>} />
-        <Route path="/:workflow/tracker" element={<AppLayout><TrackerPage /></AppLayout>} />
-        <Route path="/:workflow/qa"      element={<AppLayout><QAPage /></AppLayout>} />
-        <Route path="/:workflow/entity/:entityId" element={<AppLayout><EntityPage /></AppLayout>} />
-        <Route path="/:workflow/wave/:waveId"     element={<AppLayout><WavePage /></AppLayout>} />
-        <Route path="/:workflow/history"            element={<AppLayout><HistoryPage /></AppLayout>} />
-        <Route path="/:workflow/estimate-items"    element={<AppLayout><EstimateLinesPage /></AppLayout>} />
+        <Route path="/:workflow/connect" element={<RequireAuth><AppLayout><ConnectPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/upload"  element={<RequireAuth><AppLayout><UploadPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/tracker" element={<RequireAuth><AppLayout><TrackerPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/qa"      element={<RequireAuth><AppLayout><QAPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/entity/:entityId" element={<RequireAuth><AppLayout><EntityPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/wave/:waveId"     element={<RequireAuth><AppLayout><WavePage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/history"            element={<RequireAuth><AppLayout><HistoryPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/estimate-items"    element={<RequireAuth><AppLayout><EstimateLinesPage /></AppLayout></RequireAuth>} />
         <Route path="*"               element={<Navigate to="/" replace />} />
       </Routes>
     </AuthCheck>

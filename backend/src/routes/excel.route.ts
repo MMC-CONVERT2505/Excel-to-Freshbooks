@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createRequire } from 'module';
 import prisma from '../lib/prisma.js';
+import { requireAppAuth } from '../middleware/requireAppAuth.js';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
@@ -96,6 +97,7 @@ const EXCEL_FILES: Record<string, EntityFile> = {
 };
 
 const router = Router();
+router.use(requireAppAuth);
 
 // ── Normalise raw XLSX rows to {string: string} — same logic as migration service ──
 function toRow(rawRows: any[]): Row[] {

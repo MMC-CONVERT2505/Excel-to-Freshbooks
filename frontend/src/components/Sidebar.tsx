@@ -3,6 +3,7 @@ import { downloadAllStyledTemplates } from '../lib/templateExcel';
 import type { Workflow } from '../context/AppContext';
 import { useMigration } from '../context/MigrationContext';
 import { templateFor } from '../data/entities';
+import { clearAppToken, getAppUser } from '../lib/appAuth.js';
 
 const ENTITY_ORDER = [
   'chart-of-accounts',
@@ -39,8 +40,14 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
   const navigate  = useNavigate();
   const location  = useLocation();
   const { entities } = useMigration();
+  const appUser = getAppUser();
 
   function go(path: string) { navigate(`/${workflow}/${path}`); onClose(); }
+
+  function handleLogout() {
+    clearAppToken();
+    navigate('/login');
+  }
 
   const wfName = workflow === 'qbd' ? 'QBD → FreshBooks' : 'Excel → FreshBooks';
 
@@ -123,6 +130,23 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           </svg>
         </button>
       </div>
+
+      {appUser && (
+        <div className="sidebar__user">
+          <div className="sidebar__user-info">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span>{appUser.name}</span>
+          </div>
+          <button className="sidebar__logout" onClick={handleLogout} title="Sign out">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sign out
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

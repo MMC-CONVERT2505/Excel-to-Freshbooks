@@ -251,6 +251,16 @@ model UserSession {
   @@index([expiresAt])
 }
 
+// App-level users — admin creates accounts via seed script; JWT issued on login
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("user")
+  createdAt    DateTime @default(now())
+}
+
 model MigrationError {
   id            Int             @id @default(autoincrement())
   recordId      Int

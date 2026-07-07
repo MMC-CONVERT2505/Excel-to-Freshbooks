@@ -1,12 +1,17 @@
 import { useNavigate } from 'react-router-dom';
 import type { Workflow } from '../context/AppContext';
+import { isLoggedIn } from '../lib/appAuth.js';
 
 export default function Landing() {
   const navigate = useNavigate();
 
   function choose(wf: Workflow) {
     localStorage.setItem('oauth_workflow', wf);
-    navigate(`/${wf}/connect`);
+    if (!isLoggedIn()) {
+      navigate(`/login?next=/${wf}/connect`);
+    } else {
+      navigate(`/${wf}/connect`);
+    }
   }
 
   return (

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireAppAuth } from '../middleware/requireAppAuth.js';
 import {
   runMigrateClients,
   runMigrateItems,
@@ -21,6 +22,7 @@ import {
 } from '../controllers/migration.controller.js';
 
 const router = Router();
+router.use(requireAppAuth);
 
 router.get('/status',            runGetMigrationStatus);
 router.post('/cancel/:entity',   runCancelMigration);
