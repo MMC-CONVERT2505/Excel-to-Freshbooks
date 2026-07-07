@@ -22,6 +22,20 @@ import {
 
 type Row = Record<string, string>;
 
+// Generate multiple normalized forms of a client name for fuzzy matching.
+// Handles: extra punctuation, & vs and, word-order differences, spacing variations.
+function clientNameVariants(name: string): string[] {
+  const lower = name.toLowerCase().trim();
+  const norm = lower
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const noSpace   = norm.replace(/ /g, '');
+  const wordSorted = norm.split(' ').filter(Boolean).sort().join(' ');
+  return [...new Set([lower, norm, noSpace, wordSorted])].filter(Boolean);
+}
+
 type MigrationResult = {
   entity: string;
   total: number;
@@ -505,10 +519,12 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   try { clientCsvRows = await readUploadedRows('clients', tokenId); } catch { clientCsvRows = []; }
   const clientCsvByName: Record<string, Row> = {};
   for (const r of clientCsvRows) {
-    const org  = (r.organization || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-    const full = `${r.fname || ''} ${r.lname || ''}`.toLowerCase().trim();
-    if (org)  clientCsvByName[org]  = r;
-    if (full) clientCsvByName[full] = r;
+    const addCsvVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientCsvByName[v] = r;
+    };
+    if (r.organization) addCsvVariants(r.organization);
+    const full = `${r.fname || ''} ${r.lname || ''}`.trim();
+    if (full) addCsvVariants(full);
   }
 
   const clientRes = await getClients();
@@ -519,19 +535,17 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   for (const c of clients) {
     if (c.email) clientByEmail[c.email.toLowerCase()] = c.id;
   }
-  // Lookup by "Lastname, Firstname" (QBD journal format) and by organization
+  // Lookup by name — all normalized variants for fuzzy matching
   const clientByName: Record<string, number> = {};
   for (const c of clients) {
-    const fullName = `${c.lname || ''}, ${c.fname || ''}`.toLowerCase().trim().replace(/^,\s*/, '');
-    if (fullName) clientByName[fullName] = c.id;
-    // Index by organization (exact and normalized — strips punctuation for fuzzy match)
-    if (c.organization) {
-      clientByName[c.organization.toLowerCase()] = c.id;
-      clientByName[c.organization.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()] = c.id;
-    }
-    // Index by first+last name combined
-    const combined = `${c.fname || ''} ${c.lname || ''}`.toLowerCase().trim();
-    if (combined.trim()) clientByName[combined] = c.id;
+    const addVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientByName[v] = c.id;
+    };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+    const lastFirst = `${c.lname || ''}, ${c.fname || ''}`.trim().replace(/^,\s*/, '');
+    if (lastFirst) addVariants(lastFirst);
   }
 
   const existingInvoicesRes = await getInvoices();
@@ -564,16 +578,20 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
     }
     try {
       const header = lineRows[0];
-      const nameKey = (header.customer_name || '').toLowerCase();
-      const nameKeyNorm = nameKey.replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-      let customerid = clientByEmail[header.customer_email?.toLowerCase()]
-        || clientByName[nameKey]
-        || clientByName[nameKeyNorm];
+      let customerid = clientByEmail[header.customer_email?.toLowerCase() || ''];
+      if (!customerid && header.customer_name) {
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientByName[v]) { customerid = clientByName[v]; break; }
+        }
+      }
 
       // Client not found after full lookup — create them (they weren't in the client migration)
       if (!customerid && header.customer_name) {
         // Try to find full details in 01_clients.csv first
-        const csvClient = clientCsvByName[nameKeyNorm] || clientCsvByName[nameKey];
+        let csvClient: Row | undefined;
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientCsvByName[v]) { csvClient = clientCsvByName[v]; break; }
+        }
         const nameParts = header.customer_name.split(', ');
         const hasComma  = nameParts.length === 2;
         try {
@@ -602,20 +620,29 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
           });
           customerid = newClient?.response?.result?.client?.id;
           if (customerid) {
-            clientByName[nameKey]     = customerid;
-            clientByName[nameKeyNorm] = customerid;
+            for (const v of clientNameVariants(header.customer_name)) clientByName[v] = customerid;
             console.log(`${label} → 👤 created missing client: "${header.customer_name}"`);
           }
         } catch (createErr: any) {
           if (isAlreadyExists(createErr)) {
-            console.log(`${label} → ⚠ client "${header.customer_name}" exists in FreshBooks but name didn't match — check spelling`);
+            // Client exists in FreshBooks but no name variant matched — log FreshBooks names to help diagnose
+            const fbNames = clients
+              .map((c: any) => c.organization || `${c.fname || ''} ${c.lname || ''}`.trim())
+              .filter(Boolean)
+              .join(', ');
+            console.warn(`${label} → ⚠ client "${header.customer_name}" exists in FreshBooks but no name variant matched.\n  FreshBooks clients: ${fbNames}`);
           } else {
             throw createErr;
           }
         }
       }
 
-      if (!customerid) throw new Error(`Client not resolved: "${header.customer_name}"`);
+      if (!customerid) {
+        const fbNames = clients
+          .map((c: any) => c.organization || `${c.fname || ''} ${c.lname || ''}`.trim())
+          .filter(Boolean).slice(0, 10).join(' | ');
+        throw new Error(`Client not found: "${header.customer_name}". FreshBooks has: ${fbNames}`);
+      }
 
       const lines = lineRows.map((line) => {
         const qty = Number(line.line_qty) || 1;
