@@ -46,7 +46,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
 
   function handleLogout() {
     clearAppToken();
-    navigate('/login');
+    navigate('/');
   }
 
   const wfName = workflow === 'qbd' ? 'QBD → FreshBooks' : 'Excel → FreshBooks';
