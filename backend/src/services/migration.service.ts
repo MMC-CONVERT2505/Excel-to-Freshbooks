@@ -1148,7 +1148,12 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   const invoiceByNumber: Record<string, number> = {};
   const invoicesByClient: Record<number, any[]> = {};
   for (const inv of invoices) {
-    if (inv.invoice_number) invoiceByNumber[String(inv.invoice_number).toLowerCase()] = inv.id;
+    if (inv.invoice_number) {
+      const full     = String(inv.invoice_number).toLowerCase();
+      const stripped = full.replace(/^[a-z]+-/i, ''); // SRI-153611 → 153611
+      invoiceByNumber[full]     = inv.id;
+      invoiceByNumber[stripped] = inv.id;
+    }
     if (!invoicesByClient[inv.customerid]) invoicesByClient[inv.customerid] = [];
     invoicesByClient[inv.customerid].push(inv);
   }
