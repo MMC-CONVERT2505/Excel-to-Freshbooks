@@ -982,7 +982,7 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
         return lineObj;
       });
 
-      const res = await callWithRetry(() => createBills({
+      const billPayload = {
         vendorid,
         bill_number: header.bill_number || '',
         issue_date: normalizeDate(header.date),
@@ -990,10 +990,14 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
         currency_code: header.currency_code || 'USD',
         language: 'en',
         lines,
-      }));
+      };
+      const res = await callWithRetry(() => createBills(billPayload));
 
       result.success++;
-      console.log(res !== null ? `${label} → ✓ pushed` : `${label} → ⚡ skipped (already exists)`);
+      const createdId = res?.response?.result?.bill?.id;
+      console.log(res !== null
+        ? `${label} → ✓ pushed (FreshBooks bill ID: ${createdId})`
+        : `${label} → ⚡ skipped (already exists)`);
     } catch (err: any) {
       result.failed++;
       const detail = err?.response?.data;
@@ -1008,6 +1012,16 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
 
   liveProgress.delete('bills');
   console.log(`[BILLS] Done — success: ${result.success}, failed: ${result.failed}`);
+
+  // Verify actual count in FreshBooks
+  try {
+    const verifyRes = await getBills();
+    const fbCount = verifyRes?.response?.result?.bills?.length ?? '?';
+    console.log(`[BILLS] ✅ Verification: FreshBooks now has ${fbCount} bills total`);
+  } catch (e: any) {
+    console.warn(`[BILLS] Could not verify FreshBooks bill count: ${e.message}`);
+  }
+
   return result;
 }
 
