@@ -1126,19 +1126,19 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
 export async function migrateInvoicePayments(tokenId: number | null = null): Promise<MigrationResult> {
   const rows = await readUploadedRows('invoice-payments', tokenId);
 
-  // Build fuzzy client name → clientid map
+  // Build fuzzy client name → clientid map (same variants as migrateInvoices)
   const clientRes = await getClients();
   const clients: any[] = clientRes?.response?.result?.clients || [];
   const clientByName: Record<string, number> = {};
   for (const c of clients) {
-    if (c.organization) {
-      clientByName[c.organization.toLowerCase()] = c.id;
-      clientByName[c.organization.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()] = c.id;
-    }
-    const lnFn = `${c.lname || ''}, ${c.fname || ''}`.toLowerCase().trim().replace(/^,\s*/, '');
-    if (lnFn) clientByName[lnFn] = c.id;
-    const fnLn = `${c.fname || ''} ${c.lname || ''}`.toLowerCase().trim();
-    if (fnLn) clientByName[fnLn] = c.id;
+    const addVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientByName[v] = c.id;
+    };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+    const lastFirst = `${c.lname || ''}, ${c.fname || ''}`.trim().replace(/^,\s*/, '');
+    if (lastFirst) addVariants(lastFirst);
   }
 
   // Fetch all invoices and build lookup maps
@@ -1179,12 +1179,20 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
       invoiceid = invoiceByNumber[String(row.invoice_number).toLowerCase()];
     }
 
-    // 2. Fallback: match by customer + amount
+    // 2. Fallback: match by customer + amount (invoice number not found in FreshBooks)
     if (!invoiceid) {
-      const nameKey     = (row.customer_name || '').toLowerCase();
-      const nameKeyNorm = nameKey.replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-      const clientid    = clientByName[nameKey] || clientByName[nameKeyNorm];
-      if (!clientid) throw new Error(`Client not found: "${row.customer_name}"`);
+      console.warn(`[INV-PAY] Invoice #${row.invoice_number} not found in FreshBooks — trying client+amount fallback`);
+
+      let clientid: number | undefined;
+      for (const v of clientNameVariants(row.customer_name || '')) {
+        if (clientByName[v]) { clientid = clientByName[v]; break; }
+      }
+      if (!clientid) {
+        throw new Error(
+          `Invoice #${row.invoice_number} not found in FreshBooks, and client "${row.customer_name}" was not found either. ` +
+          `Push invoices first, then re-push invoice payments.`
+        );
+      }
 
       const clientInvoices = invoicesByClient[clientid] || [];
       const payAmt = parseFloat(row.amount);
@@ -1195,7 +1203,7 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
         Math.abs(parseFloat(inv.amount?.amount || '0') - payAmt) < 0.01
       );
 
-      if (!matched) throw new Error(`Invoice not found for "${row.customer_name}" — no invoice matching #${row.invoice_number || 'unknown'} or $${row.amount}`);
+      if (!matched) throw new Error(`Invoice #${row.invoice_number} not found in FreshBooks. Push invoices first, then re-push invoice payments.`);
       invoiceid = matched.id;
     }
 
