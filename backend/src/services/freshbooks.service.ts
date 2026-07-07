@@ -23,6 +23,17 @@ export async function loadBusinessConfigFromDB() {
   console.log(`[CONFIG] accountId=${_accountId} businessUuid=${_businessUuid}`);
 }
 
+// Load business config for a specific session token — must be called before any migration
+// to ensure the global config points to the right FreshBooks account.
+export async function loadBusinessConfigForToken(tokenId: number): Promise<void> {
+  const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
+  if (!token) throw new Error(`Token ID ${tokenId} not found in DB`);
+  if (token.accountId)    _accountId    = token.accountId;
+  if (token.businessUuid) _businessUuid = token.businessUuid;
+  if (token.businessId)   _businessId   = token.businessId;
+  console.log(`[CONFIG] Session ${tokenId} → accountId=${_accountId} businessUuid=${_businessUuid}`);
+}
+
 async function getToken() {
   let token = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } })
     ?? await prisma.freshbooksToken.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });

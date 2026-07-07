@@ -19,6 +19,7 @@ import {
   getMigrationStatus,
   cancelMigration,
 } from '../services/migration.service.js';
+import { loadBusinessConfigForToken } from '../services/freshbooks.service.js';
 
 const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFunction) => {
   try { await fn(req, res, next); } catch (err) { next(err); }
@@ -26,22 +27,30 @@ const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFun
 
 const tid = (req: Request) => (req as any).sessionTokenId as number | null ?? null;
 
-export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await migrateClients(tid(req))); });
-export const runMigrateItems           = wrap(async (req: Request, res: Response) => { res.json(await migrateItems(tid(req))); });
+// Ensure the global FreshBooks config is scoped to the requesting session's token
+// before running any migration — prevents one user's account overwriting another's.
+async function scopeToSession(req: Request): Promise<number | null> {
+  const tokenId = tid(req);
+  if (tokenId) await loadBusinessConfigForToken(tokenId);
+  return tokenId;
+}
+
+export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await migrateClients(await scopeToSession(req))); });
+export const runMigrateItems           = wrap(async (req: Request, res: Response) => { res.json(await migrateItems(await scopeToSession(req))); });
 export const runDeleteAllItems         = wrap(async (_req: Request, res: Response) => { res.json(await deleteAllItems()); });
-export const runMigrateVendors         = wrap(async (req: Request, res: Response) => { res.json(await migrateVendors(tid(req))); });
-export const runMigrateExpenses        = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenses(tid(req))); });
-export const runMigrateExpenseCategories = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenseCategories(tid(req))); });
-export const runMigrateInvoices        = wrap(async (req: Request, res: Response) => { res.json(await migrateInvoices(tid(req))); });
-export const runMigrateIncome          = wrap(async (req: Request, res: Response) => { res.json(await migrateIncome(tid(req))); });
-export const runMigrateCreditNotes     = wrap(async (req: Request, res: Response) => { res.json(await migrateCreditNotes(tid(req))); });
-export const runMigrateBills           = wrap(async (req: Request, res: Response) => { res.json(await migrateBills(tid(req))); });
-export const runMigrateBillPayments    = wrap(async (req: Request, res: Response) => { res.json(await migrateBillPayments(tid(req))); });
-export const runMigrateInvoicePayments = wrap(async (req: Request, res: Response) => { res.json(await migrateInvoicePayments(tid(req))); });
-export const runMigrateChartOfAccounts = wrap(async (req: Request, res: Response) => { res.json(await migrateChartOfAccounts(tid(req))); });
-export const runMigrateServices        = wrap(async (req: Request, res: Response) => { res.json(await migrateServices(tid(req))); });
-export const runMigrateJournalEntries  = wrap(async (req: Request, res: Response) => { res.json(await migrateJournalEntries(tid(req))); });
-export const runMigrateAll             = wrap(async (req: Request, res: Response) => { res.json(await migrateAll(tid(req))); });
+export const runMigrateVendors         = wrap(async (req: Request, res: Response) => { res.json(await migrateVendors(await scopeToSession(req))); });
+export const runMigrateExpenses        = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenses(await scopeToSession(req))); });
+export const runMigrateExpenseCategories = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenseCategories(await scopeToSession(req))); });
+export const runMigrateInvoices        = wrap(async (req: Request, res: Response) => { res.json(await migrateInvoices(await scopeToSession(req))); });
+export const runMigrateIncome          = wrap(async (req: Request, res: Response) => { res.json(await migrateIncome(await scopeToSession(req))); });
+export const runMigrateCreditNotes     = wrap(async (req: Request, res: Response) => { res.json(await migrateCreditNotes(await scopeToSession(req))); });
+export const runMigrateBills           = wrap(async (req: Request, res: Response) => { res.json(await migrateBills(await scopeToSession(req))); });
+export const runMigrateBillPayments    = wrap(async (req: Request, res: Response) => { res.json(await migrateBillPayments(await scopeToSession(req))); });
+export const runMigrateInvoicePayments = wrap(async (req: Request, res: Response) => { res.json(await migrateInvoicePayments(await scopeToSession(req))); });
+export const runMigrateChartOfAccounts = wrap(async (req: Request, res: Response) => { res.json(await migrateChartOfAccounts(await scopeToSession(req))); });
+export const runMigrateServices        = wrap(async (req: Request, res: Response) => { res.json(await migrateServices(await scopeToSession(req))); });
+export const runMigrateJournalEntries  = wrap(async (req: Request, res: Response) => { res.json(await migrateJournalEntries(await scopeToSession(req))); });
+export const runMigrateAll             = wrap(async (req: Request, res: Response) => { res.json(await migrateAll(await scopeToSession(req))); });
 export const runGetMigrationStatus     = wrap(async (_req: Request, res: Response) => { res.json(await getMigrationStatus()); });
 export const runCancelMigration        = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
