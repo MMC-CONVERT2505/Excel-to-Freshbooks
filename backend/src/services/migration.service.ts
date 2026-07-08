@@ -1322,10 +1322,12 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
     if (lastFirst) addVariants(lastFirst);
   }
 
-  // Fetch all invoices and build lookup maps
+  // Fetch all FreshBooks invoices — this includes both regular invoices AND
+  // sales receipts (which are stored in FreshBooks as paid invoices with the receipt_number
+  // as their invoice_number). Both types live under the same /invoices/invoices endpoint.
   const invoiceRes = await getInvoices();
   const invoices: any[] = invoiceRes?.response?.result?.invoices || [];
-  console.log(`[INV-PAY] Fetched ${invoices.length} invoices. Sample numbers: ${invoices.slice(0, 5).map((i: any) => i.invoice_number).join(', ')}`);
+  console.log(`[INV-PAY] Fetched ${invoices.length} invoices from FreshBooks (includes sales receipts). Sample: ${invoices.slice(0, 5).map((i: any) => i.invoice_number).join(', ')}`);
 
   const invoiceByNumber: Record<string, number> = {};
   const invoicesByClient: Record<number, any[]> = {};
@@ -1338,6 +1340,37 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
     }
     if (!invoicesByClient[inv.customerid]) invoicesByClient[inv.customerid] = [];
     invoicesByClient[inv.customerid].push(inv);
+  }
+
+  // Also load the locally-uploaded sales-receipts sheet and pre-search FreshBooks
+  // for any receipt_number not already covered by the invoice cache above.
+  // This is a safety net — if the user pushed receipts before this run, getInvoices()
+  // already includes them. But if any are missing (e.g. API pagination gap), we catch them here.
+  try {
+    const srRows = await readUploadedRows('sales-receipts', tokenId);
+    const allReceiptNums = [...new Set(
+      srRows.map(r => String(r.receipt_number || '').toLowerCase()).filter(Boolean)
+    )];
+    const missingNums = allReceiptNums.filter(num => {
+      const stripped = num.replace(/^[a-z]+-/i, '');
+      return !invoiceByNumber[num] && !invoiceByNumber[stripped];
+    });
+    if (missingNums.length > 0) {
+      console.log(`[INV-PAY] ${missingNums.length} receipt number(s) not in invoice cache — searching FreshBooks directly`);
+      for (const num of missingNums) {
+        const stripped = num.replace(/^[a-z]+-/i, '');
+        const found = await searchInvoiceByNumber(stripped) || await searchInvoiceByNumber(num);
+        if (found?.id) {
+          invoiceByNumber[num]     = found.id;
+          invoiceByNumber[stripped] = found.id;
+          console.log(`[INV-PAY] Mapped receipt #${num} → FreshBooks invoice id=${found.id}`);
+        }
+      }
+    } else {
+      console.log(`[INV-PAY] All ${allReceiptNums.length} receipt number(s) already in invoice cache ✓`);
+    }
+  } catch {
+    // sales-receipts sheet not uploaded — nothing to pre-load, that's fine
   }
 
   // Load COA for offsetting journal entries (Petty Cash nullification)
