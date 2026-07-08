@@ -1108,30 +1108,29 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
       note: row.note,
     });
 
-    // JE offsetting temporarily disabled
-    // const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
-    // if (pettyCashUuid && bankUuid) {
-    //   const n = ++jeCounter;
-    //   const [yyyy, mm, dd] = normalizeDate(row.paid_date).split('-');
-    //   const billRef = row.bill_number || `BILL-${n}`;
-    //   try {
-    //     await callWithRetry(() => createJournalEntry({
-    //       userEnteredDate:    { year: yyyy, month: mm, day: dd },
-    //       name:               billRef,
-    //       journalEntryNumber: `BILL-${n}`,
-    //       description:        billRef,
-    //       details: [
-    //         { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
-    //         { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
-    //       ],
-    //     }));
-    //     console.log(`[BILL-PAY] JE "BILL-${n}" created — offset petty cash for ${billRef}`);
-    //   } catch (jeErr: any) {
-    //     console.warn(`[BILL-PAY] ⚠ Petty cash JE skipped for ${billRef}: ${jeErr?.message}`);
-    //   }
-    // } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
-    //   console.warn(`[BILL-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.bill_number}`);
-    // }
+    const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
+    if (pettyCashUuid && bankUuid) {
+      const n = ++jeCounter;
+      const [yyyy, mm, dd] = normalizeDate(row.paid_date).split('-');
+      const billRef = row.bill_number || `BILL-${n}`;
+      try {
+        await callWithRetry(() => createJournalEntry({
+          userEnteredDate:    { year: yyyy, month: mm, day: dd },
+          name:               billRef,
+          journalEntryNumber: `BILL-${n}`,
+          description:        billRef,
+          details: [
+            { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
+            { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
+          ],
+        }));
+        console.log(`[BILL-PAY] JE "BILL-${n}" created — offset petty cash for ${billRef}`);
+      } catch (jeErr: any) {
+        console.warn(`[BILL-PAY] ⚠ Petty cash JE skipped for ${billRef}: ${jeErr?.message}`);
+      }
+    } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
+      console.warn(`[BILL-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.bill_number}`);
+    }
   }, (row) => `${row.bill_number || row.vendor_name} | ${row.paid_date} | $${row.amount}`);
 }
 
@@ -1244,30 +1243,29 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
       note: row.note,
     });
 
-    // JE offsetting temporarily disabled
-    // const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
-    // if (pettyCashUuid && bankUuid) {
-    //   const n = ++jeCounter;
-    //   const [yyyy, mm, dd] = normalizeDate(row.date).split('-');
-    //   const invoiceRef = row.invoice_number || `INV-${n}`;
-    //   try {
-    //     await callWithRetry(() => createJournalEntry({
-    //       userEnteredDate:    { year: yyyy, month: mm, day: dd },
-    //       name:               invoiceRef,
-    //       journalEntryNumber: `INV-${n}`,
-    //       description:        invoiceRef,
-    //       details: [
-    //         { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
-    //         { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
-    //       ],
-    //     }));
-    //     console.log(`[INV-PAY] JE "INV-${n}" created — offset petty cash for ${invoiceRef}`);
-    //   } catch (jeErr: any) {
-    //     console.warn(`[INV-PAY] ⚠ Petty cash JE skipped for ${invoiceRef}: ${jeErr?.message}`);
-    //   }
-    // } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
-    //   console.warn(`[INV-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.invoice_number}`);
-    // }
+    const bankUuid = row.bank_account_number ? numberMap[row.bank_account_number] : undefined;
+    if (pettyCashUuid && bankUuid) {
+      const n = ++jeCounter;
+      const [yyyy, mm, dd] = normalizeDate(row.date).split('-');
+      const invoiceRef = row.invoice_number || `INV-${n}`;
+      try {
+        await callWithRetry(() => createJournalEntry({
+          userEnteredDate:    { year: yyyy, month: mm, day: dd },
+          name:               invoiceRef,
+          journalEntryNumber: `INV-${n}`,
+          description:        invoiceRef,
+          details: [
+            { accountId: bankUuid,      amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_DEBIT' },
+            { accountId: pettyCashUuid, amount: { amount: row.amount, code: row.currency_code || 'USD' }, type: 'TYPE_CREDIT' },
+          ],
+        }));
+        console.log(`[INV-PAY] JE "INV-${n}" created — offset petty cash for ${invoiceRef}`);
+      } catch (jeErr: any) {
+        console.warn(`[INV-PAY] ⚠ Petty cash JE skipped for ${invoiceRef}: ${jeErr?.message}`);
+      }
+    } else if (pettyCashUuid && !bankUuid && row.bank_account_number) {
+      console.warn(`[INV-PAY] Bank account "${row.bank_account_number}" not found in COA — JE skipped for ${row.invoice_number}`);
+    }
   }, (row) => `#${row.invoice_number || '?'} | ${row.customer_name} | $${row.amount} | ${row.date}`);
 }
 

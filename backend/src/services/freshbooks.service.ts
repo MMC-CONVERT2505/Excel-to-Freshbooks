@@ -31,7 +31,7 @@ export async function loadBusinessConfigForToken(tokenId: number): Promise<void>
   if (token.accountId)    _accountId    = token.accountId;
   if (token.businessUuid) _businessUuid = token.businessUuid;
   if (token.businessId)   _businessId   = token.businessId;
-  console.log(`[CONFIG] Session ${tokenId} → accountId=${_accountId} businessUuid=${_businessUuid}`);
+  // config loaded silently — logged only at startup
 }
 
 async function getToken() {
