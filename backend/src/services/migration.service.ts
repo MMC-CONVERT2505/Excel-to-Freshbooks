@@ -1142,6 +1142,7 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   // Build fuzzy client name → clientid map (same variants as migrateInvoices)
   const clientRes = await getClients();
   const clients: any[] = clientRes?.response?.result?.clients || [];
+  console.log(`[INV-PAY] Fetched ${clients.length} clients. Sample: ${clients.slice(0, 5).map((c: any) => c.organization || `${c.fname} ${c.lname}`).join(', ')}`);
   const clientByName: Record<string, number> = {};
   for (const c of clients) {
     const addVariants = (name: string) => {
@@ -1157,6 +1158,7 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   // Fetch all invoices and build lookup maps
   const invoiceRes = await getInvoices();
   const invoices: any[] = invoiceRes?.response?.result?.invoices || [];
+  console.log(`[INV-PAY] Fetched ${invoices.length} invoices. Sample numbers: ${invoices.slice(0, 5).map((i: any) => i.invoice_number).join(', ')}`);
 
   const invoiceByNumber: Record<string, number> = {};
   const invoicesByClient: Record<number, any[]> = {};
