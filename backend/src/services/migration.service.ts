@@ -708,6 +708,196 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   return result;
 }
 
+// ─── SALES RECEIPTS ──────────────────────────────────────────────────────────
+// A sales receipt = invoice paid immediately at point of sale.
+// Creates a FreshBooks invoice (using receipt_number as invoice_number) and then
+// immediately applies a payment for the full amount so it shows as paid.
+
+export async function migrateSalesReceipts(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('sales-receipts', tokenId);
+
+  // Load parsed client data for auto-creation (same as migrateInvoices)
+  let clientCsvRows: Row[] = [];
+  try { clientCsvRows = await readUploadedRows('clients', tokenId); } catch { clientCsvRows = []; }
+  const clientCsvByName: Record<string, Row> = {};
+  for (const r of clientCsvRows) {
+    const addCsv = (name: string) => { for (const v of clientNameVariants(name)) clientCsvByName[v] = r; };
+    if (r.organization) addCsv(r.organization);
+    const full = `${r.fname || ''} ${r.lname || ''}`.trim();
+    if (full) addCsv(full);
+  }
+
+  const clientRes = await getClients();
+  const clients: any[] = clientRes?.response?.result?.clients || [];
+
+  const clientByEmail: Record<string, number> = {};
+  for (const c of clients) {
+    if (c.email) clientByEmail[c.email.toLowerCase()] = c.id;
+  }
+  const clientByName: Record<string, number> = {};
+  for (const c of clients) {
+    const addVariants = (name: string) => { for (const v of clientNameVariants(name)) clientByName[v] = c.id; };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+    const lastFirst = `${c.lname || ''}, ${c.fname || ''}`.trim().replace(/^,\s*/, '');
+    if (lastFirst) addVariants(lastFirst);
+  }
+
+  // Check existing invoices to skip already-pushed receipts
+  const existingInvoicesRes = await getInvoices();
+  const existingInvoices: any[] = existingInvoicesRes?.response?.result?.invoices || [];
+  const existingInvoiceNums = new Set(existingInvoices.map((inv: any) => String(inv.invoice_number || '').toLowerCase()));
+
+  // Group rows by receipt_number
+  const groups: Record<string, Row[]> = {};
+  for (const row of rows) {
+    const num = row.receipt_number;
+    if (!groups[num]) groups[num] = [];
+    groups[num].push(row);
+  }
+
+  const receiptGroups = Object.entries(groups);
+  const result: MigrationResult = { entity: 'sales-receipts', total: receiptGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  let rowIndex = 2;
+
+  liveProgress.set('sales-receipts', { done: 0, total: receiptGroups.length, startedAt: Date.now() });
+  console.log(`\n[SALES-RCPT] Starting migration — ${receiptGroups.length} receipts to push`);
+
+  const typeMap: Record<string, string> = {
+    'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
+    'credit card': 'Credit', 'credit': 'Credit',
+    'visa': 'Visa', 'mastercard': 'Mastercard', 'master card': 'Mastercard',
+    'amex': 'Amex', 'american express': 'Amex',
+    'paypal': 'PayPal', 'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
+    'wire': 'Check', 'wire transfer': 'Check', 'bank transfer': 'Check',
+  };
+
+  for (const [receiptNum, lineRows] of receiptGroups) {
+    const i = result.success + result.failed;
+    const label = `[SALES-RCPT] (${i + 1}/${receiptGroups.length}) #${receiptNum}`;
+
+    if (existingInvoiceNums.has(receiptNum.toLowerCase())) {
+      result.skipped++;
+      console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
+      rowIndex += lineRows.length;
+      liveProgress.get('sales-receipts')!.done = result.success + result.failed + result.skipped;
+      continue;
+    }
+
+    try {
+      const header = lineRows[0];
+
+      // Resolve customer
+      let customerid = clientByEmail[header.customer_email?.toLowerCase() || ''];
+      if (!customerid && header.customer_name) {
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientByName[v]) { customerid = clientByName[v]; break; }
+        }
+      }
+      if (!customerid && header.customer_name) {
+        let csvClient: Row | undefined;
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientCsvByName[v]) { csvClient = clientCsvByName[v]; break; }
+        }
+        const nameParts = header.customer_name.split(', ');
+        const hasComma  = nameParts.length === 2;
+        try {
+          const newClient = await createClient(csvClient ? {
+            fname: csvClient.fname || '', lname: csvClient.lname || '',
+            email: csvClient.email || '', organization: csvClient.organization || '',
+            currency_code: csvClient.currency_code || 'USD', language: csvClient.language || 'en',
+          } : {
+            lname: hasComma ? nameParts[0].trim() : '',
+            fname: hasComma ? nameParts[1].trim() : header.customer_name,
+            organization: hasComma ? '' : header.customer_name,
+            currency_code: 'USD', language: 'en',
+          });
+          customerid = newClient?.response?.result?.client?.id;
+          if (customerid) {
+            for (const v of clientNameVariants(header.customer_name)) clientByName[v] = customerid;
+            console.log(`${label} → 👤 created missing client: "${header.customer_name}"`);
+          }
+        } catch (createErr: any) {
+          if (!isAlreadyExists(createErr)) throw createErr;
+        }
+      }
+      if (!customerid) throw new Error(`Client not found: "${header.customer_name}"`);
+
+      // Build line items
+      const lines = lineRows.map((line) => {
+        const qty      = Number(line.line_qty) || 1;
+        const unitCost = parseFloat(line.line_unit_cost) || 0;
+        const subtotal = qty * unitCost;
+        const taxAmt1  = parseFloat(line.tax_amount1) || 0;
+        const taxAmt2  = parseFloat(line.tax_amount2) || 0;
+        const lineObj: Record<string, any> = {
+          name: line.line_name,
+          description: line.line_description || '',
+          qty,
+          unit_cost: { amount: line.line_unit_cost, code: header.currency_code || 'USD' },
+        };
+        if (line.tax_name1 && taxAmt1 && subtotal) {
+          lineObj.taxName1   = line.tax_name1;
+          lineObj.taxAmount1 = parseFloat(((taxAmt1 / subtotal) * 100).toFixed(4));
+        }
+        if (line.tax_name2 && taxAmt2 && subtotal) {
+          lineObj.taxName2   = line.tax_name2;
+          lineObj.taxAmount2 = parseFloat(((taxAmt2 / subtotal) * 100).toFixed(4));
+        }
+        return lineObj;
+      });
+
+      // Create invoice (receipt_number becomes the FreshBooks invoice_number)
+      const invoiceRes = await callWithRetry(() => createInvoice({
+        customerid,
+        invoice_number: receiptNum,
+        create_date:    normalizeDate(header.date),
+        currency_code:  header.currency_code || 'USD',
+        due_offset_days: 0,
+        notes:  header.notes,
+        status: 2,
+        lines,
+      }));
+
+      const invoiceId = invoiceRes?.response?.result?.invoice?.id;
+      if (!invoiceId) throw new Error(`Invoice created but no ID returned for receipt #${receiptNum}`);
+
+      // Total = sum of all line amounts (qty × unit_cost)
+      const totalAmount = lineRows.reduce((sum, line) => {
+        return sum + ((Number(line.line_qty) || 1) * (parseFloat(line.line_unit_cost) || 0));
+      }, 0);
+
+      // Apply immediate payment — marks the invoice as paid (receipt behaviour)
+      const rawType  = (header.payment_type || '').toLowerCase().trim();
+      const safeType = typeMap[rawType] || 'Check';
+      await createPayment({
+        invoiceid: invoiceId,
+        amount: { amount: totalAmount.toFixed(2), code: header.currency_code || 'USD' },
+        date: normalizeDate(header.date),
+        type: safeType,
+        note: header.notes || `Sales receipt ${receiptNum}`,
+      });
+
+      result.success++;
+      console.log(`${label} → ✓ pushed (invoice+payment)`);
+    } catch (err: any) {
+      result.failed++;
+      const detail = err?.response?.data;
+      const errMsg = detail ? JSON.stringify(detail) : err.message;
+      result.errors.push({ row: rowIndex, error: errMsg });
+      console.log(`${label} → ❌ failed: ${errMsg}`);
+    }
+    rowIndex += lineRows.length;
+    liveProgress.get('sales-receipts')!.done = result.success + result.failed + result.skipped;
+    await sleep(DELAY_MS);
+  }
+
+  liveProgress.delete('sales-receipts');
+  console.log(`[SALES-RCPT] Done — success: ${result.success}, failed: ${result.failed}`);
+  return result;
+}
+
 // ─── INCOME ──────────────────────────────────────────────────────────────────
 
 function mapIncomeCategory(_raw: string): string {
@@ -1540,10 +1730,11 @@ export async function migrateAll(tokenId: number | null = null): Promise<Migrati
   results.push(await migrateIncome(tokenId));            // 8 — standalone
   results.push(await migrateJournalEntries(tokenId));    // 9 — references COA accounts
   results.push(await migrateInvoices(tokenId));          // 10 — needs clients, items, services
-  results.push(await migrateBills(tokenId));             // 11 — needs vendors, categories
-  results.push(await migrateCreditNotes(tokenId));       // 12 — needs clients
-  results.push(await migrateInvoicePayments(tokenId));   // 13 — needs invoices to exist first
-  results.push(await migrateBillPayments(tokenId));      // 14 — needs bills to exist first
+  results.push(await migrateSalesReceipts(tokenId));     // 11 — needs clients; creates invoice+payment
+  results.push(await migrateBills(tokenId));             // 12 — needs vendors, categories
+  results.push(await migrateCreditNotes(tokenId));       // 13 — needs clients
+  results.push(await migrateInvoicePayments(tokenId));   // 14 — needs invoices to exist first
+  results.push(await migrateBillPayments(tokenId));      // 15 — needs bills to exist first
 
   const totalMs   = Date.now() - allStart;
   const totalMins = Math.floor(totalMs / 60000);

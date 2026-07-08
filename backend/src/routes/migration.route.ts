@@ -7,6 +7,7 @@ import {
   runMigrateExpenses,
   runMigrateExpenseCategories,
   runMigrateInvoices,
+  runMigrateSalesReceipts,
   runMigrateIncome,
   runMigrateCreditNotes,
   runMigrateBills,
@@ -33,6 +34,7 @@ router.post('/vendors',          runMigrateVendors);
 router.post('/expenses',            runMigrateExpenses);
 router.post('/expense-categories', runMigrateExpenseCategories);
 router.post('/invoices',         runMigrateInvoices);
+router.post('/sales-receipts',   runMigrateSalesReceipts);
 router.post('/income',           runMigrateIncome);
 router.post('/credit-notes',     runMigrateCreditNotes);
 router.post('/bills',            runMigrateBills);

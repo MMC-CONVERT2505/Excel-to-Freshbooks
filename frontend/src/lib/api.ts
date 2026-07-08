@@ -235,6 +235,16 @@ export function fbBulkUpdate(entity: string): Promise<BulkOpResult> {
   return api<BulkOpResult>(`/freshbooks/record/bulk-update/${entity}`, { method: 'POST' });
 }
 
+export type FBCounts = {
+  clientCount:  number;
+  invoiceCount: number;
+  billCount:    number;
+};
+
+export function getFBCounts(): Promise<FBCounts> {
+  return api<FBCounts>('/api/excel/fb-counts');
+}
+
 export async function downloadErrorSheet(entityId: string): Promise<void> {
   const sessionId = getSessionId();
   const appToken  = getAppToken();

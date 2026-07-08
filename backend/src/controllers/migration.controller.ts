@@ -7,6 +7,7 @@ import {
   migrateExpenses,
   migrateExpenseCategories,
   migrateInvoices,
+  migrateSalesReceipts,
   migrateIncome,
   migrateCreditNotes,
   migrateBills,
@@ -42,6 +43,7 @@ export const runMigrateVendors         = wrap(async (req: Request, res: Response
 export const runMigrateExpenses        = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenses(await scopeToSession(req))); });
 export const runMigrateExpenseCategories = wrap(async (req: Request, res: Response) => { res.json(await migrateExpenseCategories(await scopeToSession(req))); });
 export const runMigrateInvoices        = wrap(async (req: Request, res: Response) => { res.json(await migrateInvoices(await scopeToSession(req))); });
+export const runMigrateSalesReceipts   = wrap(async (req: Request, res: Response) => { res.json(await migrateSalesReceipts(await scopeToSession(req))); });
 export const runMigrateIncome          = wrap(async (req: Request, res: Response) => { res.json(await migrateIncome(await scopeToSession(req))); });
 export const runMigrateCreditNotes     = wrap(async (req: Request, res: Response) => { res.json(await migrateCreditNotes(await scopeToSession(req))); });
 export const runMigrateBills           = wrap(async (req: Request, res: Response) => { res.json(await migrateBills(await scopeToSession(req))); });

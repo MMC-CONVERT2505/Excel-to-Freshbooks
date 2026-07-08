@@ -6,8 +6,8 @@ import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { CatIcon, Badge } from '../components/CatIcon';
 import { templateFor } from '../data/entities';
-import { uploadExcelFile, dryRunExcel, fbDeleteById, fbBulkDelete, fbBulkUpdate, fbExportEntity } from '../lib/api';
-import type { ExcelDryRunReport, BulkOpResult } from '../lib/api';
+import { uploadExcelFile, dryRunExcel, fbDeleteById, fbBulkDelete, fbBulkUpdate, fbExportEntity, getFBCounts } from '../lib/api';
+import type { ExcelDryRunReport, BulkOpResult, FBCounts } from '../lib/api';
 
 function fmtSize(b: number) {
   if (b < 1024) return `${b} B`;
@@ -34,6 +34,8 @@ export default function EntityPage() {
   const uploadAreaRef = useRef<HTMLDivElement>(null);
 
   const [activePanel, setActivePanel] = useState<'upload' | 'update' | 'delete' | null>(null);
+  const [fbCounts, setFbCounts]         = useState<FBCounts | null>(null);
+  const [fbCountsLoading, setFbCountsLoading] = useState(false);
 
   const entity = entities.find(e => e.id === entityId);
 
@@ -134,6 +136,18 @@ export default function EntityPage() {
     const cols = templateFor(entity.id);
     downloadStyledTemplate(cols, `${entity.id}_template.xlsx`, entity.name);
     toast('success', 'Template downloaded', entity.name);
+  }
+
+  // ── freshbooks counts ─────────────────────────────────────────────────────
+  async function checkFBCounts() {
+    try {
+      setFbCountsLoading(true);
+      setFbCounts(null);
+      const counts = await getFBCounts();
+      setFbCounts(counts);
+    } catch (err: any) {
+      toast('error', 'FreshBooks check failed', err.message);
+    } finally { setFbCountsLoading(false); }
   }
 
   // ── error sheet download ───────────────────────────────────────────────────
@@ -309,6 +323,44 @@ export default function EntityPage() {
             <h3 className="ep-step__title">Push to FreshBooks</h3>
           </div>
           <div className="ep-step__body">
+
+            {/* freshbooks counts — invoice-payments / bill-payments only */}
+            {(entityId === 'invoice-payments' || entityId === 'bill-payments') && (
+              <div className="ep-fb-check">
+                <button
+                  className="btn btn--sm btn--ghost ep-fb-check__btn"
+                  onClick={checkFBCounts}
+                  disabled={fbCountsLoading || !fbConnected}
+                >
+                  {fbCountsLoading
+                    ? <>{spinIcon} Checking FreshBooks…</>
+                    : <><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Check FreshBooks</>
+                  }
+                </button>
+                {fbCounts && (
+                  <div className="ep-fb-check__counts">
+                    <span className="ep-fb-check__count">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <b>{fbCounts.invoiceCount.toLocaleString()}</b> invoices
+                    </span>
+                    <span className="ep-fb-check__sep">·</span>
+                    <span className="ep-fb-check__count">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                      <b>{fbCounts.clientCount.toLocaleString()}</b> clients
+                    </span>
+                    {entityId === 'bill-payments' && (
+                      <>
+                        <span className="ep-fb-check__sep">·</span>
+                        <span className="ep-fb-check__count">
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                          <b>{fbCounts.billCount.toLocaleString()}</b> bills
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* dep lock warning */}
             {!depsOk && (

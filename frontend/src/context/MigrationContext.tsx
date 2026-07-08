@@ -11,7 +11,7 @@ import { useToast } from './ToastContext';
 export const WAVES = [
   { id: 'wave-1', num: 1, label: 'Wave 1', subtitle: 'Master Data',      entities: ['chart-of-accounts', 'clients', 'vendors'] },
   { id: 'wave-2', num: 2, label: 'Wave 2', subtitle: 'Transactions',     entities: ['items', 'services', 'journal-entries', 'expenses', 'income'] },
-  { id: 'wave-3', num: 3, label: 'Wave 3', subtitle: 'Documents',        entities: ['invoices', 'bills', 'credit-notes'] },
+  { id: 'wave-3', num: 3, label: 'Wave 3', subtitle: 'Documents',        entities: ['invoices', 'sales-receipts', 'bills', 'credit-notes'] },
   { id: 'wave-4', num: 4, label: 'Wave 4', subtitle: 'Payments',         entities: ['invoice-payments', 'bill-payments'] },
 ] as const;
 
@@ -28,6 +28,7 @@ export const DEPS: Record<string, string[]> = {
   'services':          [],
   'journal-entries':   [],
   'invoices':          [],
+  'sales-receipts':    [],
   'bills':             [],
   'credit-notes':      [],
   'invoice-payments':  [],

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createRequire } from 'module';
 import prisma from '../lib/prisma.js';
 import { requireAppAuth } from '../middleware/requireAppAuth.js';
+import { getClients, getInvoices, getBills, loadBusinessConfigForToken } from '../services/freshbooks.service.js';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
@@ -73,6 +74,11 @@ const EXCEL_FILES: Record<string, EntityFile> = {
     id: 'invoices',
     name: 'Invoices',
     required: ['invoice_number', 'customer_name', 'create_date', 'line_name', 'line_qty', 'line_unit_cost'],
+  },
+  'sales-receipts': {
+    id: 'sales-receipts',
+    name: 'Sales Receipts',
+    required: ['receipt_number', 'customer_name', 'date', 'line_name', 'line_qty', 'line_unit_cost', 'payment_type', 'currency_code'],
   },
   bills: {
     id: 'bills',
@@ -189,8 +195,8 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
     }
   }
 
-  // Invoices: line_qty must be > 0
-  if (id === 'invoices') {
+  // Invoices + Sales Receipts: line_qty must be > 0
+  if (id === 'invoices' || id === 'sales-receipts') {
     for (let i = 0; i < rows.length; i++) {
       const raw = String(rows[i].line_qty ?? '').trim();
       if (!raw) continue;
@@ -198,7 +204,7 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
       if (isNaN(qty) || qty <= 0) {
         push(issues, i + 2, 'error', 'line_qty', raw,
           `Line quantity "${raw}" is zero or negative — FreshBooks rejects this.`,
-          'Set a positive quantity (> 0) for every invoice line.');
+          'Set a positive quantity (> 0) for every line.');
       }
     }
   }
@@ -616,6 +622,30 @@ router.get('/errors/:entityId', async (req, res, next) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${entity.id}-errors.xlsx"`);
     res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── FRESHBOOKS COUNTS ────────────────────────────────────────────────────────
+// Returns invoice + client + bill counts from FreshBooks for the current session.
+// Used by the "Check FreshBooks" button on the invoice-payments / bill-payments pages.
+router.get('/fb-counts', async (req, res, next) => {
+  try {
+    const tokenId = getCurrentTokenId(req);
+    if (tokenId != null) await loadBusinessConfigForToken(tokenId);
+
+    const [clientsRes, invoicesRes, billsRes] = await Promise.all([
+      getClients(),
+      getInvoices(),
+      getBills(),
+    ]);
+
+    res.json({
+      clientCount:  (clientsRes.response.result.clients  as any[]).length,
+      invoiceCount: (invoicesRes.response.result.invoices as any[]).length,
+      billCount:    (billsRes.response.result.bills       as any[]).length,
+    });
   } catch (err) {
     next(err);
   }

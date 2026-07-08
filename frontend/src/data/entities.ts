@@ -45,6 +45,7 @@ export const ENTITIES: Entity[] = [
   { id:'expenses', parseId:'expenses', name:'Expenses', cat:'money', status:'done', pushed:612, skipped:18, failed:3, dur:'14.6s', last:'09:44 AM', qbdFile:'Expense.IIF', csv:'expenses.csv', parseable:true, progress:98 },
   { id:'income', parseId:'income', name:'Income', cat:'money', status:'done', pushed:431, skipped:9, failed:0, dur:'9.1s', last:'09:45 AM', qbdFile:'Income.IIF', csv:'income.csv', parseable:true, progress:100 },
   { id:'invoices', parseId:'invoices', name:'Invoices', cat:'docs', status:'done', pushed:387, skipped:11, failed:2, dur:'18.2s', last:'09:48 AM', qbdFile:'Invoice.IIF', csv:'invoices.csv', parseable:true, progress:95 },
+  { id:'sales-receipts', name:'Sales Receipts', cat:'docs', status:'testing', pushed:0, skipped:0, failed:0, dur:'–', last:'–', qbdFile:'SalesReceipt.IIF', csv:'sales_receipts.csv', parseable:false, progress:0 },
   { id:'bills', parseId:'bills', name:'Bills', cat:'docs', status:'done', pushed:156, skipped:6, failed:0, dur:'6.9s', last:'09:49 AM', qbdFile:'Bill.IIF', csv:'bills.csv', parseable:true, progress:100 },
   { id:'credit-notes', parseId:'credit-notes', name:'Credit Notes', cat:'docs', status:'done', pushed:43, skipped:2, failed:0, dur:'2.3s', last:'09:49 AM', qbdFile:'CreditMemo.IIF', csv:'credit_notes.csv', parseable:true, progress:100 },
   { id:'invoice-payments', name:'Invoice Payments', cat:'payments', status:'testing', pushed:0, skipped:0, failed:0, dur:'–', last:'–', qbdFile:'(derived)', csv:'invoice_payments.csv', parseable:false, progress:70 },
@@ -176,6 +177,24 @@ export const TEMPLATES: Record<string, TplCol[]> = {
     { col:'name',           req:true,  ds:'Entry title shown in FreshBooks', ex:'Monthly accrual' },
     { col:'currency_code',  req:true,  ds:'3-letter ISO code e.g. USD', ex:'USD' },
     { col:'description',    req:false, ds:'Entry description', ex:'Accrued expense adjustment' },
+  ],
+  // One row per line item, grouped by receipt_number. Creates FreshBooks invoice + immediate payment.
+  'sales-receipts': [
+    { col:'receipt_number',   req:true,  ds:'Groups lines – all rows with same number = one receipt', ex:'SR-1001' },
+    { col:'customer_name',    req:true,  ds:'Must match a migrated client name or organization', ex:'Acme Inc' },
+    { col:'date',             req:true,  ds:'Receipt / payment date YYYY-MM-DD', ex:'2026-05-15' },
+    { col:'line_name',        req:true,  ds:'Line item description / product name', ex:'Widget A' },
+    { col:'line_qty',         req:true,  ds:'Quantity (must be > 0)', ex:'2' },
+    { col:'line_unit_cost',   req:true,  ds:'Price per unit', ex:'19.99' },
+    { col:'payment_type',     req:true,  ds:'Check | Cash | Credit | ACH | Wire | Online', ex:'Cash' },
+    { col:'currency_code',    req:true,  ds:'3-letter ISO code e.g. USD', ex:'USD' },
+    { col:'customer_email',   req:false, ds:'Used to look up client if name does not match', ex:'ar@acme.com' },
+    { col:'line_description', req:false, ds:'Extended line description', ex:'Standard widget unit' },
+    { col:'notes',            req:false, ds:'Receipt-level notes', ex:'Paid in full at point of sale' },
+    { col:'tax_name1',        req:false, ds:'Tax label 1', ex:'GST' },
+    { col:'tax_amount1',      req:false, ds:'Tax amount 1 for this line', ex:'2.00' },
+    { col:'tax_name2',        req:false, ds:'Tax label 2', ex:'PST' },
+    { col:'tax_amount2',      req:false, ds:'Tax amount 2 for this line', ex:'1.60' },
   ],
   // One row per line item, grouped by invoice_number
   'invoices': [
