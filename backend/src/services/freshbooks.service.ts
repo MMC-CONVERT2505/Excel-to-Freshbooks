@@ -173,7 +173,22 @@ export async function getInvoices() {
     pages = result?.pages || 1;
     page++;
   } while (page <= pages);
+  console.log(`[INVOICES] Fetched ${allInvoices.length} invoices from FreshBooks (account ${accountId()})`);
   return { response: { result: { invoices: allInvoices } } };
+}
+
+export async function searchInvoiceByNumber(invoiceNumber: string): Promise<any | null> {
+  const token = await getToken();
+  try {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/invoices/invoices?search[invoice_number]=${encodeURIComponent(invoiceNumber)}&per_page=10`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const invoices: any[] = res.data?.response?.result?.invoices || [];
+    return invoices[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function createInvoice(body: Record<string, any>) {

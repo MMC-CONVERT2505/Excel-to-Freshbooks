@@ -10,7 +10,7 @@ import {
   getExpenseCategories, createExpense,
   createExpenseCategory,
   createIncome,
-  createInvoice, getInvoices,
+  createInvoice, getInvoices, searchInvoiceByNumber,
   createCreditNote, getCreditNotes,
   getBills, createBills,
   createBillPayment,
@@ -1187,12 +1187,23 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   return runMigration('invoice_payments', rows, async (row) => {
     let invoiceid: number | undefined;
 
-    // 1. Match by invoice_number (exact — most reliable)
+    // 1. Match by invoice_number from pre-fetched list
     if (row.invoice_number) {
       invoiceid = invoiceByNumber[String(row.invoice_number).toLowerCase()];
     }
 
-    // 2. Fallback: match by customer + amount (invoice number not found in FreshBooks)
+    // 2. Direct FreshBooks search by invoice number (catches invoices not in pre-fetched list)
+    if (!invoiceid && row.invoice_number) {
+      console.warn(`[INV-PAY] Invoice #${row.invoice_number} not in cached list — searching FreshBooks directly`);
+      const found = await searchInvoiceByNumber(row.invoice_number);
+      if (found?.id) {
+        invoiceid = found.id;
+        invoiceByNumber[String(row.invoice_number).toLowerCase()] = found.id;
+        console.log(`[INV-PAY] Found invoice #${row.invoice_number} via direct search (id=${found.id})`);
+      }
+    }
+
+    // 3. Fallback: match by customer + amount
     if (!invoiceid) {
       console.warn(`[INV-PAY] Invoice #${row.invoice_number} not found in FreshBooks — trying client+amount fallback`);
 
