@@ -1638,10 +1638,14 @@ const ENTITY_TYPE_TO_ID: Record<string, string> = {
   JOURNAL_ENTRY:     'journal-entries',
 };
 
-export async function getMigrationStatus() {
-  // Scope phases to the currently-selected company so multi-company histories don't bleed.
-  // Falls back to all phases if no token is current (e.g. fresh install, no OAuth yet).
-  const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
+export async function getMigrationStatus(tokenId?: number | null) {
+  // Scope to the session's tokenId so each user sees only their own history.
+  // Falls back to isCurrent token for unauthenticated / legacy calls.
+  let scopeTokenId = tokenId ?? null;
+  if (!scopeTokenId) {
+    const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
+    scopeTokenId = currentToken?.id ?? null;
+  }
 
   // Get the most recent phase for EACH entity across ALL runs for this company.
   // We do this because DAG scheduling can create multiple runs:
@@ -1650,7 +1654,7 @@ export async function getMigrationStatus() {
   const allPhases = await prisma.migrationPhase.findMany({
     where: {
       status: { in: ['COMPLETED', 'PARTIAL', 'FAILED', 'RUNNING'] },
-      ...(currentToken ? { run: { tokenId: currentToken.id } } : {}),
+      ...(scopeTokenId ? { run: { tokenId: scopeTokenId } } : {}),
     },
     orderBy: { createdAt: 'desc' },
     include: {

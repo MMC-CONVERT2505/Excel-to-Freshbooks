@@ -51,7 +51,7 @@ export const runMigrateChartOfAccounts = wrap(async (req: Request, res: Response
 export const runMigrateServices        = wrap(async (req: Request, res: Response) => { res.json(await migrateServices(await scopeToSession(req))); });
 export const runMigrateJournalEntries  = wrap(async (req: Request, res: Response) => { res.json(await migrateJournalEntries(await scopeToSession(req))); });
 export const runMigrateAll             = wrap(async (req: Request, res: Response) => { res.json(await migrateAll(await scopeToSession(req))); });
-export const runGetMigrationStatus     = wrap(async (_req: Request, res: Response) => { res.json(await getMigrationStatus()); });
+export const runGetMigrationStatus     = wrap(async (req: Request, res: Response) => { res.json(await getMigrationStatus(await scopeToSession(req))); });
 export const runCancelMigration        = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
   res.json(await cancelMigration(entityId));
