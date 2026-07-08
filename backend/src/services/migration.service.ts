@@ -1189,15 +1189,18 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   return runMigration('invoice_payments', rows, async (row) => {
     let invoiceid: number | undefined;
 
-    // 1. Match by invoice_number from pre-fetched list
+    // 1. Match by invoice_number from pre-fetched list (try full and stripped of prefix)
     if (row.invoice_number) {
-      invoiceid = invoiceByNumber[String(row.invoice_number).toLowerCase()];
+      const full     = String(row.invoice_number).toLowerCase();
+      const stripped = full.replace(/^[a-z]+-/i, ''); // SRI-153653 → 153653
+      invoiceid = invoiceByNumber[full] || invoiceByNumber[stripped];
     }
 
-    // 2. Direct FreshBooks search by invoice number (catches invoices not in pre-fetched list)
+    // 2. Direct FreshBooks search (try both full and stripped number)
     if (!invoiceid && row.invoice_number) {
       console.warn(`[INV-PAY] Invoice #${row.invoice_number} not in cached list — searching FreshBooks directly`);
-      const found = await searchInvoiceByNumber(row.invoice_number);
+      const stripped = String(row.invoice_number).toLowerCase().replace(/^[a-z]+-/i, '');
+      const found = await searchInvoiceByNumber(stripped) || await searchInvoiceByNumber(row.invoice_number);
       if (found?.id) {
         invoiceid = found.id;
         invoiceByNumber[String(row.invoice_number).toLowerCase()] = found.id;
