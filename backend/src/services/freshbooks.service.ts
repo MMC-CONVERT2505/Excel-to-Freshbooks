@@ -31,7 +31,9 @@ export async function loadBusinessConfigForToken(tokenId: number): Promise<void>
   if (token.accountId)    _accountId    = token.accountId;
   if (token.businessUuid) _businessUuid = token.businessUuid;
   if (token.businessId)   _businessId   = token.businessId;
-  // config loaded silently — logged only at startup
+  // Ensure getToken() returns THIS token's access token for all subsequent API calls
+  await prisma.freshbooksToken.updateMany({ where: { isActive: true }, data: { isCurrent: false } });
+  await prisma.freshbooksToken.update({ where: { id: tokenId }, data: { isCurrent: true } });
 }
 
 async function getToken() {
