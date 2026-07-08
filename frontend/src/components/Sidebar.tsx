@@ -14,6 +14,7 @@ const ENTITY_ORDER = [
   'expenses',
   'income',
   'invoices',
+  'sales-receipts',
   'bills',
   'credit-notes',
   'invoice-payments',
