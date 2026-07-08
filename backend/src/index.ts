@@ -34,7 +34,7 @@ app.use('/freshbooks', freshbooksRouter);
 app.use('/migrate', migrationRouter);
 app.use('/parse', parserRouter);
 app.use('/api/excel', excelRouter);
-app.use('/admin', adminRouter);
+app.use('/api/admin', adminRouter);
 app.get('/callback', handleCallback);
 app.get(/\/oauth-callback/, handleCallback);  // matches /oauth-callback and /*/oauth-callback
 

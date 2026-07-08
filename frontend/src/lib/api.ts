@@ -1,6 +1,12 @@
 import type { Issue } from '../data/entities';
 import { getSessionId } from './session.js';
-import { getAppToken } from './appAuth.js';
+import { getAppToken, clearAppToken } from './appAuth.js';
+
+function handleUnauthorized() {
+  clearAppToken();
+  const next = encodeURIComponent(window.location.pathname);
+  window.location.href = `/login?next=${next}`;
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1073';
 
@@ -36,6 +42,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   };
   const res = await fetch(`${API_BASE}${path}`, merged);
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error('Session expired. Please log in again.');
+  }
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {

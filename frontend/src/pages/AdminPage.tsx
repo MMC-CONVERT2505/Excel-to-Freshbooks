@@ -1,8 +1,9 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { getAppToken, getAppUser } from '../lib/appAuth.js';
+import { getAppToken, getAppUser, clearAppToken } from '../lib/appAuth.js';
 import { useNavigate } from 'react-router-dom';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1073';
+const ADMIN_API = `${API}/api/admin`;
 
 type User = { id: number; email: string; name: string; role: string; createdAt: string };
 type Phase = { entity: string; status: string; total: number; success: number; failed: number; skipped: number; startedAt: string | null; durationMs: number };
@@ -65,6 +66,11 @@ export default function AdminPage() {
   // Stats
   const [stats, setStats] = useState<Stats | null>(null);
 
+  const goToApp = () => {
+    const wf = localStorage.getItem('oauth_workflow') || 'excel';
+    navigate(`/${wf}/connect`);
+  };
+
   useEffect(() => {
     if (appUser?.role !== 'admin') { navigate('/'); return; }
     fetchStats();
@@ -77,7 +83,7 @@ export default function AdminPage() {
 
   async function fetchStats() {
     try {
-      const r = await fetch(`${API}/admin/stats`, { headers: authHeaders() });
+      const r = await fetch(`${ADMIN_API}/stats`, { headers: authHeaders() });
       if (r.ok) setStats(await r.json());
     } catch {}
   }
@@ -85,7 +91,7 @@ export default function AdminPage() {
   async function fetchUsers() {
     setULoading(true);
     try {
-      const r = await fetch(`${API}/admin/users`, { headers: authHeaders() });
+      const r = await fetch(`${ADMIN_API}/users`, { headers: authHeaders() });
       const d = await r.json();
       if (r.ok) setUsers(d.users);
       else setUError(d.error || 'Failed to load users.');
@@ -96,7 +102,7 @@ export default function AdminPage() {
   async function fetchActivity() {
     setRLoading(true);
     try {
-      const r = await fetch(`${API}/admin/activity`, { headers: authHeaders() });
+      const r = await fetch(`${ADMIN_API}/activity`, { headers: authHeaders() });
       const d = await r.json();
       if (r.ok) setRuns(d.runs);
     } catch {}
@@ -107,7 +113,7 @@ export default function AdminPage() {
     e.preventDefault();
     setFError(''); setFLoading(true);
     try {
-      const r = await fetch(`${API}/admin/users`, {
+      const r = await fetch(`${ADMIN_API}/users`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({ email: fEmail, name: fName, password: fPassword, role: fRole }),
       });
@@ -123,7 +129,7 @@ export default function AdminPage() {
   async function handleDelete(id: number, name: string) {
     if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return;
     try {
-      const r = await fetch(`${API}/admin/users/${id}`, { method: 'DELETE', headers: authHeaders() });
+      const r = await fetch(`${ADMIN_API}/users/${id}`, { method: 'DELETE', headers: authHeaders() });
       const d = await r.json();
       if (!r.ok) { alert(d.error); return; }
       setUsers(prev => prev.filter(u => u.id !== id));
@@ -134,7 +140,7 @@ export default function AdminPage() {
   async function handleUpdate(id: number) {
     setEditLoading(true);
     try {
-      const r = await fetch(`${API}/admin/users/${id}`, {
+      const r = await fetch(`${ADMIN_API}/users/${id}`, {
         method: 'PUT', headers: authHeaders(),
         body: JSON.stringify({ role: editRole, ...(editPassword ? { password: editPassword } : {}) }),
       });
@@ -156,7 +162,7 @@ export default function AdminPage() {
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--text-1)' }}>Admin Panel</h1>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-3)' }}>Manage users and monitor activity</p>
           </div>
-          <button className="btn btn--ghost" onClick={() => navigate('/')} style={{ fontSize: 13 }}>
+          <button className="btn btn--ghost" onClick={goToApp} style={{ fontSize: 13 }}>
             ← Back to App
           </button>
         </div>
