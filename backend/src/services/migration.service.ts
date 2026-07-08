@@ -1187,32 +1187,9 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
       }
     }
 
-    // 3. Fallback: match by customer + amount
+    // 3. Invoice not found — log to error sheet and continue with next row
     if (!invoiceid) {
-      console.warn(`[INV-PAY] Invoice #${row.invoice_number} not found in FreshBooks — trying client+amount fallback`);
-
-      let clientid: number | undefined;
-      for (const v of clientNameVariants(row.customer_name || '')) {
-        if (clientByName[v]) { clientid = clientByName[v]; break; }
-      }
-      if (!clientid) {
-        throw new Error(
-          `Invoice #${row.invoice_number} not found in FreshBooks, and client "${row.customer_name}" was not found either. ` +
-          `Push invoices first, then re-push invoice payments.`
-        );
-      }
-
-      const clientInvoices = invoicesByClient[clientid] || [];
-      const payAmt = parseFloat(row.amount);
-
-      const matched = clientInvoices.find(inv =>
-        Math.abs(parseFloat(inv.outstanding?.amount || '0') - payAmt) < 0.01
-      ) || clientInvoices.find(inv =>
-        Math.abs(parseFloat(inv.amount?.amount || '0') - payAmt) < 0.01
-      );
-
-      if (!matched) throw new Error(`Invoice #${row.invoice_number} not found in FreshBooks. Push invoices first, then re-push invoice payments.`);
-      invoiceid = matched.id;
+      throw new Error(`Invoice #${row.invoice_number} not found in FreshBooks — skipped. Push the invoice first, then re-push this payment.`);
     }
 
     // Map common QBD payment types to FreshBooks-safe values (no spaces or slashes)
