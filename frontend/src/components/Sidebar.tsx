@@ -83,6 +83,19 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             Migration History
           </button>
 
+          {/* admin panel — only for admin role */}
+          {appUser?.role === 'admin' && (
+            <button
+              className={`nav-item${location.pathname === '/admin' ? ' active' : ''}`}
+              onClick={() => { navigate('/admin'); onClose(); }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              Admin Panel
+            </button>
+          )}
+
           {/* download all templates */}
           <button className="nav-item sb-tpl-btn" onClick={() => downloadAllTemplates(entities)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

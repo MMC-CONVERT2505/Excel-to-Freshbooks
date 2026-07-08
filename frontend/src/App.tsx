@@ -9,6 +9,7 @@ import Landing from './components/Landing';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
+import AdminPage from './pages/AdminPage';
 import ConnectPage from './pages/ConnectPage';
 import UploadPage from './pages/UploadPage';
 import TrackerPage from './pages/TrackerPage';
@@ -111,6 +112,7 @@ export default function App() {
       <Routes>
         <Route path="/"               element={<Landing />} />
         <Route path="/login"          element={<LoginPage />} />
+        <Route path="/admin"          element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
         <Route path="/:workflow"      element={<Navigate to="connect" replace />} />
         <Route path="/:workflow/connect" element={<RequireAuth><AppLayout><ConnectPage /></AppLayout></RequireAuth>} />
