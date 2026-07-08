@@ -1177,6 +1177,8 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
   const coaRes = await getChartOfAccounts();
   const coaAccounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
   const { numberMap } = buildMaps(coaAccounts);
+  const allNumbers = Object.keys(numberMap).filter(k => !k.startsWith('name::'));
+  console.log(`[INV-PAY] COA loaded: ${allNumbers.length} accounts. Numbers: ${allNumbers.slice(0, 20).join(', ')}`);
 
   const pettyCashUuid = numberMap['name::petty cash'];
   if (!pettyCashUuid) {
