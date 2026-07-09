@@ -1,9 +1,35 @@
 import axios from 'axios';
+import { AsyncLocalStorage } from 'async_hooks';
 import prisma from '../lib/prisma.js';
 
 const BASE = 'https://api.freshbooks.com';
 
-// In-memory business config — loaded from DB on startup, updated instantly on selection
+// ── Per-request session context ─────────────────────────────────────────────
+// Each migration runs inside runWithToken(), which stores the session's account
+// details in AsyncLocalStorage. This prevents concurrent users from overwriting
+// each other's globals (_accountId etc.) and sending data to the wrong account.
+interface SessionCtx {
+  tokenId:      number;
+  accountId:    string;
+  businessUuid: string;
+  businessId:   string;
+}
+const sessionCtx = new AsyncLocalStorage<SessionCtx>();
+
+export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>): Promise<T> {
+  const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
+  if (!token) throw new Error(`Token ${tokenId} not found in DB`);
+  const ctx: SessionCtx = {
+    tokenId,
+    accountId:    token.accountId    || _accountId,
+    businessUuid: token.businessUuid || _businessUuid,
+    businessId:   token.businessId   || _businessId,
+  };
+  return sessionCtx.run(ctx, fn);
+}
+
+// Legacy module-level globals — used as fallback when no session context is set
+// (e.g., startup, OAuth flow, non-migration routes).
 let _accountId:    string = process.env.FRESHBOOKS_ACCOUNT_ID    || '';
 let _businessUuid: string = process.env.FRESHBOOKS_BUSINESS_UUID || '';
 let _businessId:   string = process.env.FRESHBOOKS_BUSINESS_ID   || '';
@@ -37,8 +63,16 @@ export async function loadBusinessConfigForToken(tokenId: number): Promise<void>
 }
 
 async function getToken() {
-  let token = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } })
-    ?? await prisma.freshbooksToken.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
+  const ctx = sessionCtx.getStore();
+  let token = ctx?.tokenId
+    ? await prisma.freshbooksToken.findUnique({ where: { id: ctx.tokenId } })
+    : null;
+
+  // Fallback for OAuth flow / non-migration routes (no session context)
+  if (!token) {
+    token = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } })
+      ?? await prisma.freshbooksToken.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
+  }
   if (!token) throw new Error('No token found. Complete OAuth flow first.');
 
   // Auto-refresh if expired or expiring within 5 minutes
@@ -89,13 +123,23 @@ async function refreshToken(token: any) {
     },
   });
 
+  // Update the session context so subsequent getToken() calls use the new token ID,
+  // not the old (now-expired) one that was stored when runWithToken() started.
+  const ctx = sessionCtx.getStore();
+  if (ctx) {
+    ctx.tokenId = newToken.id;
+    if (newToken.accountId)    ctx.accountId    = newToken.accountId;
+    if (newToken.businessUuid) ctx.businessUuid = newToken.businessUuid;
+    if (newToken.businessId)   ctx.businessId   = newToken.businessId;
+  }
+
   console.log(`[TOKEN] Refreshed — new expiry: ${expiresAt.toISOString()}`);
   return newToken;
 }
 
-function accountId()    { return _accountId; }
-function businessUuid() { return _businessUuid; }
-function businessId()   { return _businessId; }
+function accountId()    { return sessionCtx.getStore()?.accountId    ?? _accountId; }
+function businessUuid() { return sessionCtx.getStore()?.businessUuid ?? _businessUuid; }
+function businessId()   { return sessionCtx.getStore()?.businessId   ?? _businessId; }
 
 function authHeader(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
@@ -914,9 +958,11 @@ export async function updateEntityById(entityId: string, recordId: string, body:
 export async function bulkUpdateEntity(entityId: string): Promise<{ updated: number; failed: number; errors: string[] }> {
   const cfg = ENTITY_CFG[entityId];
   if (!cfg) throw Object.assign(new Error(`Unknown entity: ${entityId}`), { statusCode: 400 });
-  const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
+  const ctxTokenId = sessionCtx.getStore()?.tokenId
+    ?? (await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } }))?.id
+    ?? null;
   const sheet = await prisma.uploadedSheet.findFirst({
-    where: { entity: entityId, tokenId: currentToken?.id ?? null, expiresAt: { gt: new Date() } },
+    where: { entity: entityId, tokenId: ctxTokenId, expiresAt: { gt: new Date() } },
     orderBy: { uploadedAt: 'desc' },
   });
   if (!sheet) throw Object.assign(new Error(`No uploaded sheet found for "${entityId}" — upload the file first`), { statusCode: 400 });
