@@ -18,7 +18,17 @@ import {
   getChartOfAccounts, createChartOfAccount, createAccountGroup,
   createService, setServiceRate, getServices,
   getJournalEntries, createJournalEntry,
+  getSessionTokenId,
 } from './freshbooks.service.js';
+
+// ── Per-session key helper ────────────────────────────────────────────────────
+// liveProgress and cancelledEntities used to be keyed by entity only (e.g. 'invoices'),
+// so two concurrent users pushing the same entity would overwrite each other's progress.
+// Now keyed by "tokenId:entity" so each user's state is fully isolated.
+function sessionKey(entity: string): string {
+  const tid = getSessionTokenId();
+  return tid != null ? `${tid}:${entity}` : entity;
+}
 
 type Row = Record<string, string>;
 
@@ -269,9 +279,10 @@ async function runMigration(
   // Process rows in parallel batches of CONCURRENCY
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     // Check cancellation flag — set by cancelMigration() from the HTTP cancel endpoint
-    if (cancelledEntities.has(entity)) {
-      cancelledEntities.delete(entity);
-      liveProgress.delete(entity);
+    const cancelKey = sessionKey(entity);
+    if (cancelledEntities.has(cancelKey)) {
+      cancelledEntities.delete(cancelKey);
+      liveProgress.delete(sessionKey(entity));
       console.log(`${tag} Cancelled by user at row ${i + 1}/${rows.length} — stopping.`);
       result.durationMs = Date.now() - startTime;
       // Phase already marked FAILED by cancelMigration(); just return without overwriting status
@@ -569,7 +580,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   const result: MigrationResult = { entity: 'invoices', total: invoiceGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
   let rowIndex = 2;
 
-  liveProgress.set('invoices', { done: 0, total: invoiceGroups.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('invoices'), { done: 0, total: invoiceGroups.length, startedAt: Date.now() });
   console.log(`\n[INVOICES] Starting migration — ${invoiceGroups.length} invoices to push`);
 
   for (const [invoiceNum, lineRows] of invoiceGroups) {
@@ -699,11 +710,11 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
-    liveProgress.get('invoices')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('invoices'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('invoices');
+  liveProgress.delete(sessionKey('invoices'));
   console.log(`[INVOICES] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -761,7 +772,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
   const result: MigrationResult = { entity: 'sales-receipts', total: receiptGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
   let rowIndex = 2;
 
-  liveProgress.set('sales-receipts', { done: 0, total: receiptGroups.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('sales-receipts'), { done: 0, total: receiptGroups.length, startedAt: Date.now() });
   console.log(`\n[SALES-RCPT] Starting migration — ${receiptGroups.length} receipts to push`);
 
   const typeMap: Record<string, string> = {
@@ -781,7 +792,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
       result.skipped++;
       console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
       rowIndex += lineRows.length;
-      liveProgress.get('sales-receipts')!.done = result.success + result.failed + result.skipped;
+      liveProgress.get(sessionKey('sales-receipts'))!.done = result.success + result.failed + result.skipped;
       continue;
     }
 
@@ -893,7 +904,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('sales-receipts');
+  liveProgress.delete(sessionKey('sales-receipts'));
   console.log(`[SALES-RCPT] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -990,7 +1001,7 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
   const result: MigrationResult = { entity: 'credit_notes', total: cnGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
   let rowIndex = 2;
 
-  liveProgress.set('credit-notes', { done: 0, total: cnGroups.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('credit-notes'), { done: 0, total: cnGroups.length, startedAt: Date.now() });
   console.log(`\n[CREDIT_NOTES] Starting migration — ${cnGroups.length} credit notes to push`);
 
   for (const [cnNum, lineRows] of cnGroups) {
@@ -1059,11 +1070,11 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
-    liveProgress.get('credit-notes')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('credit-notes'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('credit-notes');
+  liveProgress.delete(sessionKey('credit-notes'));
   console.log(`[CREDIT_NOTES] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1109,7 +1120,7 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
   const result: MigrationResult = { entity: 'bills', total: billGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
   let rowIndex = 2;
 
-  liveProgress.set('bills', { done: 0, total: billGroups.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('bills'), { done: 0, total: billGroups.length, startedAt: Date.now() });
   console.log(`\n[BILLS] Starting migration — ${billGroups.length} bills to push`);
 
   for (const [billNum, lineRows] of billGroups) {
@@ -1196,11 +1207,11 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
-    liveProgress.get('bills')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('bills'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('bills');
+  liveProgress.delete(sessionKey('bills'));
   console.log(`[BILLS] Done — success: ${result.success}, failed: ${result.failed}`);
 
   // Verify actual count in FreshBooks
@@ -1493,7 +1504,7 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
 
   const result: MigrationResult = { entity: 'chart_of_accounts', total: rows.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
 
-  liveProgress.set('chart-of-accounts', { done: 0, total: rows.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('chart-of-accounts'), { done: 0, total: rows.length, startedAt: Date.now() });
   console.log(`\n[COA] Starting migration — ${rows.length} accounts to push`);
 
   for (let i = 0; i < rows.length; i++) {
@@ -1512,7 +1523,7 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
         }
         result.success++;
         console.log(`${label} → ⚡ skipped (already in FreshBooks)`);
-        liveProgress.get('chart-of-accounts')!.done = result.success + result.failed + result.skipped;
+        liveProgress.get(sessionKey('chart-of-accounts'))!.done = result.success + result.failed + result.skipped;
         await sleep(DELAY_MS);
         continue;
       }
@@ -1602,11 +1613,11 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
       result.errors.push({ row: i + 2, error: errMsg });
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
-    liveProgress.get('chart-of-accounts')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('chart-of-accounts'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('chart-of-accounts');
+  liveProgress.delete(sessionKey('chart-of-accounts'));
   console.log(`[COA] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1698,7 +1709,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
     success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [],
   };
 
-  liveProgress.set('journal-entries', { done: 0, total: entryGroups.length, startedAt: Date.now() });
+  liveProgress.set(sessionKey('journal-entries'), { done: 0, total: entryGroups.length, startedAt: Date.now() });
   console.log(`\n[JE] Starting migration — ${entryGroups.length} journal entries to push (${CONCURRENCY} workers)`);
 
   for (let i = 0; i < entryGroups.length; i += CONCURRENCY) {
@@ -1759,11 +1770,11 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
       }
     }));
 
-    liveProgress.get('journal-entries')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('journal-entries'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete('journal-entries');
+  liveProgress.delete(sessionKey('journal-entries'));
   console.log(`[JE] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1887,7 +1898,11 @@ export async function getMigrationStatus(tokenId?: number | null) {
   // Always merge liveProgress BEFORE checking for empty — a migration can be actively
   // running even when allPhases is empty (e.g. new company token, no DB phases yet,
   // or the current run hasn't written its first phase to DB yet).
-  for (const [entity, prog] of liveProgress) {
+  // Keys are now "tokenId:entity" — filter to this session only, then strip the prefix.
+  const tokenPrefix = scopeTokenId ? `${scopeTokenId}:` : '';
+  for (const [key, prog] of liveProgress) {
+    if (scopeTokenId && !key.startsWith(tokenPrefix)) continue; // skip other users' progress
+    const entity = scopeTokenId ? key.slice(tokenPrefix.length) : key;
     const runningPhase = {
       entity,
       status:      'RUNNING' as const,
@@ -1941,13 +1956,16 @@ const ID_TO_SERVICE_KEY: Record<string, string> = {
   'invoice-payments': 'invoice_payments',
 };
 
-export async function cancelMigration(entityId: string): Promise<{ cancelled: boolean }> {
-  // Signal the in-memory batch loop to stop (for runMigration-based entities)
+export async function cancelMigration(entityId: string, tokenId?: number | null): Promise<{ cancelled: boolean }> {
+  // Signal the in-memory batch loop to stop (for runMigration-based entities).
+  // Key includes tokenId so cancelling one user never affects another's migration.
   const serviceKey = ID_TO_SERVICE_KEY[entityId];
-  if (serviceKey) cancelledEntities.add(serviceKey);
+  if (serviceKey) {
+    cancelledEntities.add(tokenId ? `${tokenId}:${serviceKey}` : serviceKey);
+  }
 
   // Remove from liveProgress so the status endpoint no longer shows it as RUNNING
-  liveProgress.delete(entityId);
+  liveProgress.delete(tokenId ? `${tokenId}:${entityId}` : entityId);
 
   // Immediately mark the running phase FAILED in DB so the next status poll reflects it
   const entityType = ID_TO_ENTITY_TYPE[entityId];

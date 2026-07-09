@@ -28,6 +28,12 @@ export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>): Pr
   return sessionCtx.run(ctx, fn);
 }
 
+// Returns the tokenId for the current async execution context (set by runWithToken).
+// Used by migration.service.ts to scope liveProgress / cancelledEntities per user.
+export function getSessionTokenId(): number | null {
+  return sessionCtx.getStore()?.tokenId ?? null;
+}
+
 // Legacy module-level globals — used as fallback when no session context is set
 // (e.g., startup, OAuth flow, non-migration routes).
 let _accountId:    string = process.env.FRESHBOOKS_ACCOUNT_ID    || '';

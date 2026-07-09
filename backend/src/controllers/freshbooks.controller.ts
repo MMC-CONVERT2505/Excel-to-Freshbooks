@@ -21,145 +21,155 @@ import {
   deleteEntityById, bulkDeleteEntity,
   updateEntityById, bulkUpdateEntity,
   exportEntityExcel,
+  runWithToken,
 } from '../services/freshbooks.service.js';
 
 const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFunction) => {
   try { await fn(req, res, next); } catch (err) { next(err); }
 };
 
-export const getIdentity = wrap(async (_req: Request, res: Response) => {
-  res.json(await getFreshBooksIdentity());
+const tid = (req: Request) => (req as any).sessionTokenId as number | null ?? null;
+
+// Every FreshBooks API call runs inside runWithToken() so it uses the requesting
+// session's account — not the shared isCurrent global which could belong to anyone.
+async function ws<T>(req: Request, fn: () => Promise<T>): Promise<T> {
+  const tokenId = tid(req);
+  return tokenId ? runWithToken(tokenId, fn) : fn();
+}
+
+export const getIdentity = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getFreshBooksIdentity()));
 });
 
-export const listChartOfAccounts = wrap(async (_req: Request, res: Response) => {
-  res.json(await getChartOfAccounts());
+export const listChartOfAccounts = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getChartOfAccounts()));
 });
 export const addChartOfAccount = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createChartOfAccount(req.body));
+  res.status(201).json(await ws(req, () => createChartOfAccount(req.body)));
 });
 
-export const listClients = wrap(async (_req: Request, res: Response) => {
-  res.json(await getClients());
+export const listClients = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getClients()));
 });
 export const addClient = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createClient(req.body));
+  res.status(201).json(await ws(req, () => createClient(req.body)));
 });
 
-export const listVendors = wrap(async (_req: Request, res: Response) => {
-  res.json(await getVendors());
+export const listVendors = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getVendors()));
 });
 export const addVendor = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createVendor(req.body));
+  res.status(201).json(await ws(req, () => createVendor(req.body)));
 });
 
-export const listItems = wrap(async (_req: Request, res: Response) => {
-  res.json(await getItems());
+export const listItems = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getItems()));
 });
 export const addItem = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createItem(req.body));
+  res.status(201).json(await ws(req, () => createItem(req.body)));
 });
 
-export const listServices = wrap(async (_req: Request, res: Response) => {
-  res.json(await getServices());
+export const listServices = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getServices()));
 });
 export const addService = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createService(req.body));
+  res.status(201).json(await ws(req, () => createService(req.body)));
 });
 
-export const listExpenseCategories = wrap(async (_req: Request, res: Response) => {
-  res.json(await getExpenseCategories());
+export const listExpenseCategories = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getExpenseCategories()));
 });
-export const listExpenses = wrap(async (_req: Request, res: Response) => {
-  res.json(await getExpenses());
+export const listExpenses = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getExpenses()));
 });
 export const addExpense = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createExpense(req.body));
+  res.status(201).json(await ws(req, () => createExpense(req.body)));
 });
-export const downloadExpensesExcel = wrap(async (_req: Request, res: Response) => {
-  const buffer = await exportExpensesExcel();
+export const downloadExpensesExcel = wrap(async (req: Request, res: Response) => {
+  const buffer = await ws(req, () => exportExpensesExcel());
   res.setHeader('Content-Disposition', 'attachment; filename="freshbooks_expenses.xlsx"');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buffer);
 });
 
-export const listIncome = wrap(async (_req: Request, res: Response) => {
-  res.json(await getIncome());
+export const listIncome = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getIncome()));
 });
 export const addIncome = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createIncome(req.body));
+  res.status(201).json(await ws(req, () => createIncome(req.body)));
 });
 
-export const listInvoices = wrap(async (_req: Request, res: Response) => {
-  res.json(await getInvoices());
+export const listInvoices = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getInvoices()));
 });
 export const addInvoice = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createInvoice(req.body));
+  res.status(201).json(await ws(req, () => createInvoice(req.body)));
 });
 
-export const listBills = wrap(async (_req: Request, res: Response) => {
-  res.json(await getBills());
+export const listBills = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getBills()));
 });
 export const addBills = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createBills(req.body));
+  res.status(201).json(await ws(req, () => createBills(req.body)));
 });
 
-export const listCreditNotes = wrap(async (_req: Request, res: Response) => {
-  res.json(await getCreditNotes());
+export const listCreditNotes = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getCreditNotes()));
 });
 export const addCreditNote = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createCreditNote(req.body));
+  res.status(201).json(await ws(req, () => createCreditNote(req.body)));
 });
 
 export const addPayment = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createPayment(req.body));
+  res.status(201).json(await ws(req, () => createPayment(req.body)));
 });
 
 export const addBillPayment = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createBillPayment(req.body));
+  res.status(201).json(await ws(req, () => createBillPayment(req.body)));
 });
 
-export const listJournalEntries = wrap(async (_req: Request, res: Response) => {
-  res.json(await getJournalEntries());
+export const listJournalEntries = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getJournalEntries()));
 });
 export const addJournalEntry = wrap(async (req: Request, res: Response) => {
-  res.status(201).json(await createJournalEntry(req.body));
+  res.status(201).json(await ws(req, () => createJournalEntry(req.body)));
 });
 
-export const listEstimates = wrap(async (_req: Request, res: Response) => {
-  res.json(await getEstimates());
+export const listEstimates = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getEstimates()));
 });
 
-export const listEstimateLines = wrap(async (_req: Request, res: Response) => {
-  res.json(await getEstimateLines());
+export const listEstimateLines = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getEstimateLines()));
 });
 
-export const listCreditMemos = wrap(async (_req: Request, res: Response) => {
-  res.json(await getCreditMemos());
+export const listCreditMemos = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getCreditMemos()));
 });
 
-export const listProjects = wrap(async (_req: Request, res: Response) => {
-  res.json(await getProjects());
+export const listProjects = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getProjects()));
 });
 
 export const runDeleteById = wrap(async (req: Request, res: Response) => {
-  res.json(await deleteEntityById(String(req.params.entity), String(req.params.id)));
+  res.json(await ws(req, () => deleteEntityById(String(req.params.entity), String(req.params.id))));
 });
 
 export const runBulkDelete = wrap(async (req: Request, res: Response) => {
-  res.json(await bulkDeleteEntity(String(req.params.entity)));
+  res.json(await ws(req, () => bulkDeleteEntity(String(req.params.entity))));
 });
 
 export const runUpdateById = wrap(async (req: Request, res: Response) => {
-  res.json(await updateEntityById(String(req.params.entity), String(req.params.id), req.body));
+  res.json(await ws(req, () => updateEntityById(String(req.params.entity), String(req.params.id), req.body)));
 });
 
 export const runBulkUpdate = wrap(async (req: Request, res: Response) => {
-  res.json(await bulkUpdateEntity(String(req.params.entity)));
+  res.json(await ws(req, () => bulkUpdateEntity(String(req.params.entity))));
 });
 
 export const exportEntity = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
-  const buffer = await exportEntityExcel(entityId);
+  const buffer = await ws(req, () => exportEntityExcel(entityId));
   res.setHeader('Content-Disposition', `attachment; filename="freshbooks_${entityId}.xlsx"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buffer);

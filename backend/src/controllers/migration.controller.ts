@@ -56,5 +56,5 @@ export const runMigrateAll             = wrap(async (req: Request, res: Response
 export const runGetMigrationStatus     = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => getMigrationStatus(t))); });
 export const runCancelMigration        = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
-  res.json(await cancelMigration(entityId));
+  res.json(await cancelMigration(entityId, tid(req)));
 });

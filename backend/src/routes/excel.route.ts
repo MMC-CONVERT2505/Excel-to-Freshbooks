@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createRequire } from 'module';
 import prisma from '../lib/prisma.js';
 import { requireAppAuth } from '../middleware/requireAppAuth.js';
-import { getClients, getInvoices, getBills, loadBusinessConfigForToken } from '../services/freshbooks.service.js';
+import { getClients, getInvoices, getBills, runWithToken } from '../services/freshbooks.service.js';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
@@ -633,19 +633,19 @@ router.get('/errors/:entityId', async (req, res, next) => {
 router.get('/fb-counts', async (req, res, next) => {
   try {
     const tokenId = getCurrentTokenId(req);
-    if (tokenId != null) await loadBusinessConfigForToken(tokenId);
-
-    const [clientsRes, invoicesRes, billsRes] = await Promise.all([
-      getClients(),
-      getInvoices(),
-      getBills(),
-    ]);
-
-    res.json({
-      clientCount:  (clientsRes.response.result.clients  as any[]).length,
-      invoiceCount: (invoicesRes.response.result.invoices as any[]).length,
-      billCount:    (billsRes.response.result.bills       as any[]).length,
-    });
+    const fetch = async () => {
+      const [clientsRes, invoicesRes, billsRes] = await Promise.all([
+        getClients(),
+        getInvoices(),
+        getBills(),
+      ]);
+      return {
+        clientCount:  (clientsRes.response.result.clients  as any[]).length,
+        invoiceCount: (invoicesRes.response.result.invoices as any[]).length,
+        billCount:    (billsRes.response.result.bills       as any[]).length,
+      };
+    };
+    res.json(tokenId != null ? await runWithToken(tokenId, fetch) : await fetch());
   } catch (err) {
     next(err);
   }
