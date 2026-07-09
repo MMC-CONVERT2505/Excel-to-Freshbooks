@@ -121,16 +121,18 @@ async function callWithRetry(fn: () => Promise<any>): Promise<any> {
       if (isAlreadyExists(err)) return null;
       const status = err?.response?.status;
       const isNetwork = !status && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'].includes(err.code);
+      const isServerError = status >= 500 && status <= 599; // 502, 503, 504 = FreshBooks temporary errors
       if (status === 429 && attempt < MAX_RETRIES) {
         const retryAfter = parseInt(err?.response?.headers?.['retry-after'] || '0', 10);
         const waitMs = retryAfter > 0
           ? retryAfter * 1000
-          : Math.min(1000 * Math.pow(2, attempt), 60000); // 2s, 4s, 8s… capped at 60s
+          : Math.min(1000 * Math.pow(2, attempt), 60000);
         console.log(`Rate limited — waiting ${waitMs / 1000}s before retry ${attempt}/${MAX_RETRIES}...`);
         await sleep(waitMs);
-      } else if (isNetwork && attempt < MAX_RETRIES) {
-        console.log(`Network error (${err.code}) — retrying in 3s (attempt ${attempt}/${MAX_RETRIES})...`);
-        await sleep(3000);
+      } else if ((isNetwork || isServerError) && attempt < MAX_RETRIES) {
+        const waitMs = Math.min(5000 * attempt, 30000); // 5s, 10s, 15s… capped at 30s
+        console.log(`${isServerError ? `FreshBooks ${status}` : `Network error (${err.code})`} — retrying in ${waitMs / 1000}s (attempt ${attempt}/${MAX_RETRIES})...`);
+        await sleep(waitMs);
       } else {
         throw err;
       }
