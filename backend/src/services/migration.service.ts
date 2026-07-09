@@ -1574,8 +1574,14 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
         console.log(`${label} → number collision on ${row.number}, using ${accountNumber}`);
       }
 
+      // For sub-accounts, strip the QBD "Parent:Child" prefix — FreshBooks only
+      // wants the child part; the parent relationship is set via parent_account UUID.
+      const accountName = parent_account && row.name?.includes(':')
+        ? row.name.slice(row.name.lastIndexOf(':') + 1).trim()
+        : row.name;
+
       const payload: Record<string, any> = {
-        name:     row.name,
+        name:     accountName,
         type:     row.type,
         sub_type: row.sub_type,
         state:    row.state || 'active',
