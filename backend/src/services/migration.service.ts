@@ -1655,7 +1655,7 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
   const { numberMap, subTypeByUuid } = buildMaps(accounts);
 
   const existingServicesRes = await getServices();
-  const existingServices: any[] = existingServicesRes?.services || [];
+  const existingServices: any[] = existingServicesRes?.response?.result?.services || [];
   const existingServiceKeys = new Set(existingServices.map((s: any) => (s.name || '').toLowerCase()));
 
   return runMigration('services', rows, async (row) => {
@@ -1695,7 +1695,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
 
   // Fetch existing journal entries to skip duplicates
   const existingRes = await getJournalEntries();
-  const existingEntries: any[] = existingRes?.manualJournalEntries || existingRes?.journal_entries || [];
+  const existingEntries: any[] = existingRes?.manualJournalEntries || [];
   const existingNums = new Set(
     existingEntries.map((e: any) => String(e.journalEntryNumber || e.journal_entry_number || '').toLowerCase())
   );

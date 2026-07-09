@@ -175,10 +175,11 @@ export async function getClients() {
     );
     const result = res.data?.response?.result;
     allClients.push(...(result?.clients || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { clients: allClients } } };
+  return { response: { result: { clients: allClients, total: allClients.length } } };
 }
 
 export async function createClient(body: Record<string, any>) {
@@ -222,11 +223,12 @@ export async function getInvoices() {
     );
     const result = res.data?.response?.result;
     allInvoices.push(...(result?.invoices || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
   console.log(`[INVOICES] Fetched ${allInvoices.length} invoices from FreshBooks (account ${accountId()})`);
-  return { response: { result: { invoices: allInvoices } } };
+  return { response: { result: { invoices: allInvoices, total: allInvoices.length } } };
 }
 
 export async function searchInvoiceByNumber(invoiceNumber: string): Promise<any | null> {
@@ -276,12 +278,22 @@ export async function deleteInvoice(invoiceId: number) {
 
 export async function getItems() {
   const token = await getToken();
-  const res = await axios.get(
-    `${BASE}/accounting/account/${accountId()}/items/items`,
-    { headers: authHeader(token.accessToken) }
-  );
-  console.log('[getItems] total:', res.data?.response?.result?.total, 'pages:', res.data?.response?.result?.pages, 'returned:', res.data?.response?.result?.items?.length);
-  return res.data;
+  const allItems: any[] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/items/items?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allItems.push(...(result?.items || []));
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+  console.log(`[getItems] fetched ${allItems.length} items across ${page - 1} page(s)`);
+  return { response: { result: { items: allItems, total: allItems.length } } };
 }
 
 export async function getArchivedItems() {
@@ -355,13 +367,13 @@ export async function getLedgerAccounts() {
       { headers: authHeader(token.accessToken) }
     );
     const data = res.data;
-    // Response shape: { accounts: [...] } or { ledgerAccounts: [...] }
     const batch = data?.accounts || data?.ledgerAccounts || data?.response?.result?.accounts || [];
     allAccounts.push(...batch);
-    pages = data?.pages || data?.meta?.pages || 1;
+    const total = data?.total ?? data?.meta?.total ?? 0;
+    pages = data?.pages || data?.meta?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { accounts: allAccounts };
+  return { accounts: allAccounts, total: allAccounts.length };
 }
 
 // PUT /accounting/businesses/{businessUuid}/ledger_accounts/accounts/{accountId}
@@ -400,15 +412,16 @@ export async function getExpenseCategories() {
   let pages = 1;
   do {
     const res = await axios.get(
-      `${BASE}/accounting/account/${accountId()}/expenses/categories?page=${page}&per_page=50`,
+      `${BASE}/accounting/account/${accountId()}/expenses/categories?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
     const result = res.data?.response?.result;
     allCategories.push(...(result?.categories || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { categories: allCategories } } };
+  return { response: { result: { categories: allCategories, total: allCategories.length } } };
 }
 
 export async function getExpenses() {
@@ -422,10 +435,11 @@ export async function getExpenses() {
     );
     const result = res.data?.response?.result;
     allExpenses.push(...(result?.expenses || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { expenses: allExpenses } } };
+  return { response: { result: { expenses: allExpenses, total: allExpenses.length } } };
 }
 
 function flattenObject(obj: any, prefix = ''): Record<string, any> {
@@ -543,10 +557,11 @@ export async function getVendors() {
     );
     const result = res.data?.response?.result;
     allVendors.push(...(result?.bill_vendors || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { bill_vendors: allVendors } } };
+  return { response: { result: { bill_vendors: allVendors, total: allVendors.length } } };
 }
 
 export async function createVendor(body: Record<string, any>) {
@@ -591,10 +606,11 @@ export async function getBills() {
     );
     const result = res.data?.response?.result;
     allBills.push(...(result?.bills || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { bills: allBills } } };
+  return { response: { result: { bills: allBills, total: allBills.length } } };
 }
 
 export async function createBills(body: Record<string, any>) {
@@ -631,8 +647,20 @@ export async function archiveBill(billId: number) {
 
 export async function getServices() {
   const token = await getToken();
-  const res = await axios.get(`${BASE}/comments/business/${businessId()}/services`, { headers: authHeader(token.accessToken) });
-  return res.data;
+  const allServices: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/comments/business/${businessId()}/services?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const data = res.data;
+    allServices.push(...(data?.services || []));
+    const total = data?.total ?? data?.meta?.total ?? 0;
+    pages = data?.pages ?? data?.meta?.pages ?? (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+  return { response: { result: { services: allServices, total: allServices.length } } };
 }
 
 export async function createService(body: Record<string, any>) {
@@ -661,11 +689,20 @@ export async function setServiceRate(serviceId: number, rate: string) {
 
 export async function getIncome() {
   const token = await getToken();
-  const res = await axios.get(
-    `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes`,
-    { headers: authHeader(token.accessToken) }
-  );
-  return res.data;
+  const allIncome: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allIncome.push(...(result?.other_incomes || []));
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+  return { response: { result: { other_incomes: allIncome, total: allIncome.length } } };
 }
 
 export async function createIncome(body: Record<string, any>) {
@@ -702,11 +739,20 @@ export async function deleteIncome(incomeId: number) {
 
 export async function getCreditNotes() {
   const token = await getToken();
-  const res = await axios.get(
-    `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes`,
-    { headers: authHeader(token.accessToken) }
-  );
-  return res.data;
+  const allNotes: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allNotes.push(...(result?.credit_notes || []));
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+  return { response: { result: { credit_notes: allNotes, total: allNotes.length } } };
 }
 
 export async function createCreditNote(body: Record<string, any>) {
@@ -748,10 +794,11 @@ export async function getPayments() {
     );
     const result = res.data?.response?.result;
     allPayments.push(...(result?.payments || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { payments: allPayments } } };
+  return { response: { result: { payments: allPayments, total: allPayments.length } } };
 }
 
 export async function getBillPayments() {
@@ -765,10 +812,11 @@ export async function getBillPayments() {
     );
     const result = res.data?.response?.result;
     allBillPayments.push(...(result?.bill_payments || []));
-    pages = result?.pages || 1;
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
   } while (page <= pages);
-  return { response: { result: { bill_payments: allBillPayments } } };
+  return { response: { result: { bill_payments: allBillPayments, total: allBillPayments.length } } };
 }
 
 export async function createBillPayment(body: Record<string, any>) {
@@ -800,11 +848,20 @@ export async function deleteBillPayment(billPaymentId: number) {
 
 export async function getJournalEntries() {
   const token = await getToken();
-  const res = await axios.get(
-    `${BASE}/accounting/businesses/${businessUuid()}/journal_entries`,
-    { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
-  );
-  return res.data;
+  const allEntries: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/businesses/${businessUuid()}/journal_entries?page=${page}&per_page=100`,
+      { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
+    );
+    const data = res.data;
+    allEntries.push(...(data?.manualJournalEntries || []));
+    const total = data?.total ?? data?.meta?.total ?? 0;
+    pages = data?.pages ?? data?.meta?.pages ?? (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+  return { manualJournalEntries: allEntries, total: allEntries.length };
 }
 
 export async function createExpenseCategory(body: Record<string, any>) {
