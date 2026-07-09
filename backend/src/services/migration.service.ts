@@ -85,12 +85,22 @@ const MAX_RETRIES = 4;
 
 // In-memory live progress for custom-loop migrations (invoices, bills, etc.) that don't
 // use runMigration(). getMigrationStatus() merges this so the frontend sees real counts.
-const liveProgress: Map<string, { done: number; total: number; startedAt: number }> = new Map();
+const liveProgress: Map<string, { done: number; total: number; startedAt: number; completed?: boolean; completedAt?: number }> = new Map();
 
 // In-memory cancellation flags — set by cancelMigration(), checked per-batch in runMigration()
 const cancelledEntities: Set<string> = new Set();
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+// Marks a custom-loop entity as completed in liveProgress so the status poll returns
+// COMPLETED status. The entry is kept alive for 30s so in-flight polls can pick it up,
+// then deleted to free memory.
+function markLiveProgressCompleted(key: string) {
+  const prog = liveProgress.get(key);
+  if (!prog) return;
+  liveProgress.set(key, { ...prog, done: prog.total, completed: true, completedAt: Date.now() });
+  setTimeout(() => liveProgress.delete(key), 30_000);
+}
 
 function normalizeDate(d: string): string {
   if (!d) return d;
@@ -716,7 +726,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete(sessionKey('invoices'));
+  markLiveProgressCompleted(sessionKey('invoices'));
   console.log(`[INVOICES] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -906,7 +916,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete(sessionKey('sales-receipts'));
+  markLiveProgressCompleted(sessionKey('sales-receipts'));
   console.log(`[SALES-RCPT] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1080,7 +1090,7 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete(sessionKey('credit-notes'));
+  markLiveProgressCompleted(sessionKey('credit-notes'));
   console.log(`[CREDIT_NOTES] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1217,7 +1227,7 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete(sessionKey('bills'));
+  markLiveProgressCompleted(sessionKey('bills'));
   console.log(`[BILLS] Done — success: ${result.success}, failed: ${result.failed}`);
 
   // Verify actual count in FreshBooks
@@ -1655,7 +1665,7 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
   console.log(`\n[COA] Pass 2 — ${subPass.length} sub-accounts`);
   for (const { row, i } of subPass) await processRow(row, i);
 
-  liveProgress.delete(sessionKey('chart-of-accounts'));
+  markLiveProgressCompleted(sessionKey('chart-of-accounts'));
   console.log(`[COA] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1812,7 +1822,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
     await sleep(DELAY_MS);
   }
 
-  liveProgress.delete(sessionKey('journal-entries'));
+  markLiveProgressCompleted(sessionKey('journal-entries'));
   console.log(`[JE] Done — success: ${result.success}, failed: ${result.failed}`);
   return result;
 }
@@ -1943,13 +1953,15 @@ export async function getMigrationStatus(tokenId?: number | null) {
     const entity = scopeTokenId ? key.slice(tokenPrefix.length) : key;
     const runningPhase = {
       entity,
-      status:      'RUNNING' as const,
+      status:      (prog.completed ? 'COMPLETED' : 'RUNNING') as 'COMPLETED' | 'RUNNING',
       total:       prog.total,
       success:     prog.done,
       skipped:     0,
       failed:      0,
       durationMs:  Date.now() - prog.startedAt,
-      completedAt: null,
+      completedAt: prog.completed && prog.completedAt
+        ? new Date(prog.completedAt).toISOString()
+        : null,
       startedAt:   new Date(prog.startedAt).toISOString(),
       errors:      [],
     };

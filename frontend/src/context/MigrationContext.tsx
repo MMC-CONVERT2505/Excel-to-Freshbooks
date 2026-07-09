@@ -160,12 +160,17 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
         return { ...e, status: 'running' as const, pushed: p.success, skipped: p.skipped, failed: p.failed };
       const fin = p.status === 'COMPLETED' || p.status === 'PARTIAL' || p.status === 'FAILED';
       if (!fin) return e;
-      // Never overwrite a locally-running entity with a stale completed phase.
-      // There is a gap between pushEntity() starting and the new RUNNING phase appearing
-      // in the DB (FreshBooks pre-flight calls can take 500ms–2s). During that gap the
-      // poll would see the OLD completed phase and revert the UI to the previous result.
-      // The HTTP response .then() handler is responsible for setting the final state.
-      if (e.status === 'running') return e;
+      // Never overwrite a locally-running entity with a STALE completed phase.
+      // Allow completion only when the phase finished AFTER this push started —
+      // that means it belongs to the current run (not a previous one).
+      if (e.status === 'running') {
+        const pushStartedAt = startTRef.current[e.id] ?? 0;
+        const completedAt = p.completedAt ? new Date(p.completedAt).getTime() : 0;
+        if (completedAt <= pushStartedAt) return e;  // stale — skip
+        // Phase completed after this push started: completion confirmed via poll
+        clearRunning(e.id);
+        clearInterval(ivRefs.current[e.id]);
+      }
       return {
         ...e,
         status: p.status === 'FAILED' || p.failed > 0 ? 'error' as const : 'done' as const,
@@ -273,8 +278,14 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
           clearInterval(ivRefs.current[id]);
           clearRunning(id);
           const name = ENTITIES.find(e => e.id === id)?.name ?? id;
-          toast('error', `${name} failed`, err?.message || 'Migration could not complete — check the error and retry.');
-          setEntities(e => e.map(x => x.id === id ? { ...x, status: 'error' } : x));
+          // If the poll already resolved this entity as done (via COMPLETED liveProgress),
+          // don't revert to error — just clean up silently.
+          setEntities(prev => {
+            const current = prev.find(x => x.id === id);
+            if (current?.status === 'done') return prev;  // already done via poll
+            toast('error', `${name} failed`, err?.message || 'Migration could not complete — check the error and retry.');
+            return prev.map(x => x.id === id ? { ...x, status: 'error' } : x);
+          });
           setPushMap(m => { const n = { ...m }; delete n[id]; return n; });
           resolve();
         });
