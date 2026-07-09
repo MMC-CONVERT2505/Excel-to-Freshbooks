@@ -73,12 +73,12 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   invoices: {
     id: 'invoices',
     name: 'Invoices',
-    required: ['invoice_number', 'customer_name', 'create_date', 'line_name', 'line_qty', 'line_unit_cost'],
+    required: ['invoice_number', 'customer_name', 'create_date', 'line_qty', 'line_unit_cost'],
   },
   'sales-receipts': {
     id: 'sales-receipts',
     name: 'Sales Receipts',
-    required: ['receipt_number', 'customer_name', 'date', 'line_name', 'line_qty', 'line_unit_cost', 'payment_type', 'currency_code'],
+    required: ['receipt_number', 'customer_name', 'date', 'line_qty', 'line_unit_cost', 'payment_type', 'currency_code'],
   },
   bills: {
     id: 'bills',
@@ -88,7 +88,7 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   'credit-notes': {
     id: 'credit-notes',
     name: 'Credit Notes',
-    required: ['credit_note_number', 'customer_name', 'date', 'amt', 'line_name', 'customer_email', 'currency_code', 'credit_type'],
+    required: ['credit_note_number', 'customer_name', 'date', 'amt', 'customer_email', 'currency_code', 'credit_type'],
   },
   'invoice-payments': {
     id: 'invoice-payments',
