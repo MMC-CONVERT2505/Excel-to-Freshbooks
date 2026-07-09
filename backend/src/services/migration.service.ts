@@ -15,7 +15,7 @@ import {
   getBills, createBills,
   createBillPayment,
   createPayment,
-  getChartOfAccounts, createChartOfAccount, createAccountGroup,
+  getChartOfAccounts, getLedgerAccounts, createChartOfAccount, createAccountGroup,
   createService, setServiceRate, getServices,
   getJournalEntries, createJournalEntry,
   getSessionTokenId,
@@ -1502,55 +1502,58 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
 
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
-
   const { numberMap, subTypeByUuid } = buildMaps(accounts);
   console.log(`\n[COA] Loaded ${accounts.length} accounts from FreshBooks into lookup map`);
 
   const result: MigrationResult = { entity: 'chart_of_accounts', total: rows.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
-
   liveProgress.set(sessionKey('chart-of-accounts'), { done: 0, total: rows.length, startedAt: Date.now() });
   console.log(`\n[COA] Starting migration — ${rows.length} accounts to push`);
 
+  // Determine if a row is a sub-account (has a parent pointing to a DIFFERENT account).
+  // Self-referencing parents (seen in some QBD exports) are treated as top-level.
+  const isSubAccount = (row: any): boolean => {
+    const p = String(row.parent_account_number ?? '').trim();
+    return p !== '' && p !== String(row.number ?? '').trim();
+  };
+
+  // Preserve original indices so console labels remain (i+1/total) across both passes.
+  const topPass: Array<{ row: any; i: number }> = [];
+  const subPass: Array<{ row: any; i: number }> = [];
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
+    (isSubAccount(rows[i]) ? subPass : topPass).push({ row: rows[i], i });
+  }
+
+  // ── Shared per-row processor ──────────────────────────────────────────────
+  const processRow = async (row: any, i: number) => {
     const label = `[COA] (${i + 1}/${rows.length}) ${row.number || '(no number)'} - ${row.name}`;
     try {
-      // ── Name-first skip ───────────────────────────────────────────────────────
-      // If this account name already exists in FreshBooks, skip immediately and
-      // register its UUID under the sheet's original number so any child accounts
-      // that reference this as parent_account_number can still find it.
+      // Name-first skip: if this name already exists in FreshBooks, register its
+      // UUID under the sheet number so child accounts can still find it as parent.
       const nameKey = `name::${(row.name || '').toLowerCase()}`;
       if (row.name && numberMap[nameKey]) {
         const existingUuid = numberMap[nameKey];
-        if (row.number && !numberMap[row.number]) {
-          numberMap[row.number] = existingUuid;
-        }
+        if (row.number && !numberMap[row.number]) numberMap[row.number] = existingUuid;
         result.success++;
         console.log(`${label} → ⚡ skipped (already in FreshBooks)`);
         liveProgress.get(sessionKey('chart-of-accounts'))!.done = result.success + result.failed + result.skipped;
         await sleep(DELAY_MS);
-        continue;
+        return;
       }
 
-      // ── Parent resolution ─────────────────────────────────────────────────────
-      // Ignore self-referencing parent (data issue in some QBD exports where
-      // the parent_account_number equals the account's own number).
+      // Parent resolution
       const parentNumber = (row.parent_account_number && row.parent_account_number !== row.number)
         ? row.parent_account_number : '';
       let parent_account = parentNumber
         ? (numberMap[parentNumber] ?? numberMap[`name::${parentNumber.toLowerCase()}`])
         : undefined;
 
-      // If parent UUID found but sub_type doesn't match → wrong FreshBooks account
-      // (happens when FB default account number collides with QBD number e.g. FB uses 3000=equity)
+      // Drop parent if sub_type mismatches (avoids routing to wrong FB default account)
       if (parent_account && row.sub_type) {
         const parentSubType = subTypeByUuid[parent_account];
-        if (parentSubType && parentSubType !== row.sub_type) {
-          parent_account = undefined;
-        }
+        if (parentSubType && parentSubType !== row.sub_type) parent_account = undefined;
       }
 
-      // Fallback to DEFAULT_PARENT when parent missing or type mismatch
+      // Fallback to a known FreshBooks default group when parent is missing
       if (parentNumber && !parent_account) {
         const fallbackNum = DEFAULT_PARENT[`${row.type}|${row.sub_type}`];
         parent_account = fallbackNum ? numberMap[fallbackNum] : undefined;
@@ -1561,10 +1564,7 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
         }
       }
 
-      const isChild = Boolean(parentNumber);
-
-      // Number collision: FreshBooks already has an account at this number.
-      // Increment until we find a free slot: 1000 → 1001 → 1002 ...
+      // Number collision: bump to next free slot (1000 → 1001 → …)
       let accountNumber = row.number;
       if (accountNumber && numberMap[accountNumber]) {
         const n = parseInt(accountNumber, 10);
@@ -1584,25 +1584,21 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
         ? await callWithRetry(() => createChartOfAccount({ ...payload, parent_account }))
         : await callWithRetry(() => createAccountGroup(payload));
 
-      // Add newly created account to map so subsequent rows can use it as parent
+      // Register newly created account so subsequent rows can use it as parent
       const inner   = res?.data || res;
       const created = inner?.ledger_account || inner?.journal_entry_account || inner;
       const createdNumber = created?.account_number || created?.number;
       const createdUuid   = created?.account_uuid   || created?.uuid || created?.id;
       if (createdUuid) {
-        // Register by number (if available)
         if (createdNumber) {
           numberMap[createdNumber] = createdUuid;
           if (row.number && createdNumber !== row.number) numberMap[row.number] = createdUuid;
         }
-        // Always register by name so N/P (numberless) accounts can still be found by children
         if (row.name) numberMap[`name::${row.name.toLowerCase()}`] = createdUuid;
         console.log(`[COA] Registered: ${createdNumber || '(no number)'} / name::${row.name} → ${createdUuid}`);
       }
 
-      // If skipped (already exists), recover UUID by name and register under the
-      // original sheet number so child accounts can find this as their parent.
-      // Applies to both top-level and child accounts.
+      // If skipped (already exists but not in initial map), recover UUID so children can find it
       if (!res && row.number) {
         const fallback = numberMap[`name::${row.name.toLowerCase()}`];
         if (fallback && !numberMap[row.number]) numberMap[row.number] = fallback;
@@ -1619,7 +1615,37 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
     }
     liveProgress.get(sessionKey('chart-of-accounts'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
-  }
+  };
+
+  // ── Pass 1: Top-level accounts (no parent) ────────────────────────────────
+  console.log(`\n[COA] Pass 1 — ${topPass.length} top-level accounts`);
+  for (const { row, i } of topPass) await processRow(row, i);
+
+  // ── Refresh numberMap from FreshBooks ─────────────────────────────────────
+  // Two sources:
+  //   • getChartOfAccounts() → journal_entry_accounts tree (includes accounts with JE history)
+  //   • getLedgerAccounts()  → flat list of ALL user-created accounts (catches accounts that
+  //     exist in FreshBooks but have no journal entries, e.g. "Payroll Expenses")
+  // This refresh ensures:
+  //   1. Newly created parents have their canonical FreshBooks UUID indexed
+  //   2. Pre-existing accounts that were skipped are now in the map so children find them
+  console.log(`\n[COA] Refreshing account map from FreshBooks after pass 1...`);
+  const freshCoa = await getChartOfAccounts();
+  const freshCoaAccounts = freshCoa?.response?.result?.journal_entry_accounts || [];
+  const { numberMap: m1, subTypeByUuid: s1 } = buildMaps(freshCoaAccounts);
+  Object.assign(numberMap, m1);
+  Object.assign(subTypeByUuid, s1);
+
+  const freshLedger = await getLedgerAccounts();
+  const freshLedgerAccounts: any[] = freshLedger?.accounts || [];
+  const { numberMap: m2, subTypeByUuid: s2 } = buildMaps(freshLedgerAccounts);
+  Object.assign(numberMap, m2);
+  Object.assign(subTypeByUuid, s2);
+  console.log(`[COA] Map refreshed — ${Object.keys(numberMap).length} entries (COA: ${freshCoaAccounts.length}, ledger: ${freshLedgerAccounts.length})`);
+
+  // ── Pass 2: Sub-accounts (has parent) ────────────────────────────────────
+  console.log(`\n[COA] Pass 2 — ${subPass.length} sub-accounts`);
+  for (const { row, i } of subPass) await processRow(row, i);
 
   liveProgress.delete(sessionKey('chart-of-accounts'));
   console.log(`[COA] Done — success: ${result.success}, failed: ${result.failed}`);
