@@ -671,7 +671,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         const taxAmt2 = parseFloat(line.tax_amount2) || 0;
 
         const lineObj: Record<string, any> = {
-          name: line.line_name,
+          name: line.line_name?.trim() || 'Sales',
           description: line.line_description || '',
           qty,
           unit_cost: { amount: line.line_unit_cost, code: header.currency_code || 'USD' },
@@ -845,7 +845,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
         const taxAmt1  = parseFloat(line.tax_amount1) || 0;
         const taxAmt2  = parseFloat(line.tax_amount2) || 0;
         const lineObj: Record<string, any> = {
-          name: line.line_name,
+          name: line.line_name?.trim() || 'Sales',
           description: line.line_description || '',
           qty,
           unit_cost: { amount: line.line_unit_cost, code: header.currency_code || 'USD' },
@@ -1037,7 +1037,7 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
         const taxAmt2 = parseFloat(line.taxq2) || 0;
 
         const lineObj: Record<string, any> = {
-          name: line.line_name,
+          name: line.line_name?.trim() || 'Sales',
           description: line.des || '',
           qty,
           unit_cost: { amount: line.amt, code: header.currency_code || 'USD' },
