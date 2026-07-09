@@ -162,8 +162,10 @@ function push(issues: DryRunIssue[], row: number, sev: 'error' | 'warning', fiel
 }
 
 // ─── VALID VALUE SETS ─────────────────────────────────────────────────────────
-const VALID_PAYMENT_TYPES = new Set(['check', 'cash', 'credit', 'ach', 'wire', 'online']);
-const VALID_CREDIT_TYPES  = new Set(['goodwill', 'overpayment', 'credit']);
+// invoice-payments and bill-payments accept Wire + Online; income and expenses do not.
+const VALID_PAYMENT_TYPES_FULL    = new Set(['check', 'cash', 'credit', 'ach', 'wire', 'online']);
+const VALID_PAYMENT_TYPES_INCOME  = new Set(['check', 'cash', 'credit', 'ach']);
+const VALID_CREDIT_TYPES          = new Set(['goodwill', 'overpayment', 'credit']);
 
 // ─── ISO 4217 common currency codes ──────────────────────────────────────────
 const ISO_CURRENCIES = new Set([
@@ -222,15 +224,23 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
     }
   }
 
-  // payment_type must be a valid FreshBooks value
-  const PAYMENT_TYPE_ENTITIES = new Set(['invoice-payments', 'bill-payments', 'income', 'expenses']);
+  // payment_type must be a valid FreshBooks value.
+  // Income and expenses only accept: Check, Cash, Credit, ACH.
+  // Invoice-payments and bill-payments also accept: Wire, Online.
+  const PAYMENT_TYPE_ENTITIES = new Set(['invoice-payments', 'bill-payments', 'income', 'expenses', 'sales-receipts']);
   if (PAYMENT_TYPE_ENTITIES.has(id)) {
+    const validSet = (id === 'income' || id === 'expenses')
+      ? VALID_PAYMENT_TYPES_INCOME
+      : VALID_PAYMENT_TYPES_FULL;
+    const validList = (id === 'income' || id === 'expenses')
+      ? 'Check, Cash, Credit, ACH'
+      : 'Check, Cash, Credit, ACH, Wire, Online';
     for (let i = 0; i < rows.length; i++) {
       const raw = String(rows[i].payment_type || '').trim();
-      if (raw && !VALID_PAYMENT_TYPES.has(raw.toLowerCase())) {
-        push(issues, i + 2, 'warning', 'payment_type', raw,
-          `"${raw}" is not a valid payment type.`,
-          'Use one of: Check, Cash, Credit, ACH, Wire, Online.');
+      if (raw && !validSet.has(raw.toLowerCase())) {
+        push(issues, i + 2, 'error', 'payment_type', raw,
+          `"${raw}" is not a valid payment type for ${id}.`,
+          `Use one of: ${validList}.`);
       }
     }
   }
