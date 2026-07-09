@@ -917,7 +917,8 @@ function mapIncomeCategory(_raw: string): string {
   return 'other';
 }
 
-// Maps QBD transaction types to valid FreshBooks payment_type values
+// Maps QBD transaction types to valid FreshBooks other_incomes payment_type values.
+// FreshBooks only accepts: Check, Cash, Credit, ACH — Wire/Online are NOT valid here.
 const QBD_PAYMENT_TYPE_MAP: Record<string, string> = {
   'deposit':             'Check',
   'check':               'Check',
@@ -928,15 +929,18 @@ const QBD_PAYMENT_TYPE_MAP: Record<string, string> = {
   'paycheck':            'Check',
   'bill pmt -check':     'Check',
   'sales receipt':       'Check',
+  'wire':                'Check',
+  'wire transfer':       'Check',
+  'online':              'Check',
+  'bank transfer':       'Check',
   'credit card':         'Credit',
   'credit card charge':  'Credit',
   'credit card credit':  'Credit',
   'credit card refund':  'Credit',
+  'credit':              'Credit',
   'cash':                'Cash',
   'cash sale':           'Cash',
   'ach':                 'ACH',
-  'wire':                'Wire',
-  'online':              'Online',
 };
 
 function mapPaymentType(qbdType: string): string {
