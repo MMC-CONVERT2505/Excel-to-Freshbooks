@@ -1500,7 +1500,28 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
     const row = rows[i];
     const label = `[COA] (${i + 1}/${rows.length}) ${row.number || '(no number)'} - ${row.name}`;
     try {
-      const parentNumber = row.parent_account_number || '';
+      // ── Name-first skip ───────────────────────────────────────────────────────
+      // If this account name already exists in FreshBooks, skip immediately and
+      // register its UUID under the sheet's original number so any child accounts
+      // that reference this as parent_account_number can still find it.
+      const nameKey = `name::${(row.name || '').toLowerCase()}`;
+      if (row.name && numberMap[nameKey]) {
+        const existingUuid = numberMap[nameKey];
+        if (row.number && !numberMap[row.number]) {
+          numberMap[row.number] = existingUuid;
+        }
+        result.success++;
+        console.log(`${label} → ⚡ skipped (already in FreshBooks)`);
+        liveProgress.get('chart-of-accounts')!.done = result.success + result.failed + result.skipped;
+        await sleep(DELAY_MS);
+        continue;
+      }
+
+      // ── Parent resolution ─────────────────────────────────────────────────────
+      // Ignore self-referencing parent (data issue in some QBD exports where
+      // the parent_account_number equals the account's own number).
+      const parentNumber = (row.parent_account_number && row.parent_account_number !== row.number)
+        ? row.parent_account_number : '';
       let parent_account = parentNumber
         ? (numberMap[parentNumber] ?? numberMap[`name::${parentNumber.toLowerCase()}`])
         : undefined;
@@ -1527,14 +1548,13 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
 
       const isChild = Boolean(parentNumber);
 
-      // Number collision: FreshBooks already has an account at this number
-      // (e.g. its default "1000 - Cash" vs QBD "1000 - CSB Checking").
+      // Number collision: FreshBooks already has an account at this number.
       // Increment until we find a free slot: 1000 → 1001 → 1002 ...
       let accountNumber = row.number;
       if (accountNumber && numberMap[accountNumber]) {
         const n = parseInt(accountNumber, 10);
         accountNumber = !isNaN(n) ? String(n + 1) : `${accountNumber}-1`;
-        console.log(`${label} → number collision, using ${accountNumber}`);
+        console.log(`${label} → number collision on ${row.number}, using ${accountNumber}`);
       }
 
       const payload: Record<string, any> = {
@@ -1565,12 +1585,12 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
         console.log(`[COA] Registered: ${createdNumber || '(no number)'} / name::${row.name} → ${createdUuid}`);
       }
 
-      // If skipped (already exists) but this is a top-level account, recover its UUID
-      // by name so its children can find it — handles FreshBooks default accounts
-      // that have no account_number stored in their API response
-      if (!res && !isChild && row.number) {
+      // If skipped (already exists), recover UUID by name and register under the
+      // original sheet number so child accounts can find this as their parent.
+      // Applies to both top-level and child accounts.
+      if (!res && row.number) {
         const fallback = numberMap[`name::${row.name.toLowerCase()}`];
-        if (fallback) numberMap[row.number] = fallback;
+        if (fallback && !numberMap[row.number]) numberMap[row.number] = fallback;
       }
 
       result.success++;
