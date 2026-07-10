@@ -907,6 +907,72 @@ export async function deleteJournalEntry(entryId: string) {
   return res.data;
 }
 
+// ── INVOICE FULL EXPORT (with line items, matches upload template format) ────────
+// Fetches all invoices with include[]=lines so each line item becomes a separate row.
+async function exportInvoicesExcel(): Promise<Buffer> {
+  const token = await getToken();
+  const allInvoices: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/invoices/invoices?page=${page}&per_page=100&include[]=lines`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allInvoices.push(...(result?.invoices || []));
+    const total = result?.total ?? 0;
+    pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
+    page++;
+  } while (page <= pages);
+
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  if (allInvoices.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['invoice_number', '(no records found)']]), 'invoices');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  // One row per line item — invoice header fields repeated on every row
+  const rows: Record<string, any>[] = [];
+  for (const inv of allInvoices) {
+    const lines: any[] = Array.isArray(inv.lines) && inv.lines.length > 0 ? inv.lines : [{}];
+    for (const line of lines) {
+      rows.push({
+        freshbooks_id:   inv.id ?? '',
+        invoice_number:  inv.invoice_number ?? '',
+        customer_name:   inv.current_organization || `${inv.fname || ''} ${inv.lname || ''}`.trim() || '',
+        customer_email:  inv.email ?? '',
+        create_date:     inv.create_date ?? '',
+        due_offset_days: inv.due_offset_days ?? 30,
+        currency_code:   inv.currency_code ?? 'USD',
+        language:        inv.language ?? 'en',
+        status:          inv.status ?? '',
+        notes:           inv.notes ?? '',
+        terms:           inv.terms ?? '',
+        po_number:       inv.po_number ?? '',
+        line_name:       line.name ?? '',
+        line_description: line.description ?? '',
+        line_qty:        line.qty ?? '',
+        line_unit_cost:  line.unit_cost?.amount ?? '',
+        tax_name1:       line.taxName1 ?? '',
+        tax_amount1:     line.taxAmount1 ?? '',
+        tax_name2:       line.taxName2 ?? '',
+        tax_amount2:     line.taxAmount2 ?? '',
+      });
+    }
+  }
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  if (ws['A1']) ws['A1'].s = { font: { bold: true } };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'invoices');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 // ── ENTITY-LEVEL OPERATIONS (delete by ID, bulk delete, update by ID, bulk update) ──
 
 type AnyDeleteFn = (id: any) => Promise<any>;
@@ -917,7 +983,8 @@ interface EntityCfg {
   extractRecords: (data: any) => Array<{ id: any }>;
   deleteOne: AnyDeleteFn;
   updateOne: AnyUpdateFn;
-  stringId?: boolean; // journal entries use string IDs
+  stringId?: boolean;  // journal entries use string IDs
+  exportFn?: () => Promise<Buffer>;  // custom export override (e.g. invoices with line items)
 }
 
 const ENTITY_CFG: Record<string, EntityCfg> = {
@@ -926,7 +993,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem },
   'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense },
   'income':            { getAll: getIncome,          extractRecords: d => d.response?.result?.other_incomes || [],   deleteOne: deleteIncome,        updateOne: updateIncome },
-  'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice },
+  'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel },
   'bills':             { getAll: getBills,           extractRecords: d => d.response?.result?.bills || [],           deleteOne: deleteBill,          updateOne: updateBill },
   'credit-notes':      { getAll: getCreditNotes,     extractRecords: d => d.response?.result?.credit_notes || [],    deleteOne: deleteCreditNote,    updateOne: updateCreditNote },
   'invoice-payments':  { getAll: getPayments,        extractRecords: d => d.response?.result?.payments || [],        deleteOne: deletePayment,       updateOne: updatePayment },
@@ -952,6 +1019,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
 export async function exportEntityExcel(entityId: string): Promise<Buffer> {
   const cfg = ENTITY_CFG[entityId];
   if (!cfg) throw Object.assign(new Error(`Unknown entity: ${entityId}`), { statusCode: 400 });
+  if (cfg.exportFn) return cfg.exportFn();
 
   const { createRequire } = await import('module');
   const require = createRequire(import.meta.url);
