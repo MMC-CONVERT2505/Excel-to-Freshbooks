@@ -1048,7 +1048,8 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
       console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ✓ updated`);
     } catch (err: any) {
       failed++;
-      const msg = err?.response?.data?.message || err.message;
+      const raw = err?.response?.data;
+      const msg = raw ? JSON.stringify(raw) : err.message;
       errors.push(`Row ${i + 2} (ID ${serviceId}): ${msg}`);
       console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ ${msg}`);
     }
