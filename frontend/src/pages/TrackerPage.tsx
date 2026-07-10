@@ -5,6 +5,7 @@ import { CatIconMini, Badge } from '../components/CatIcon';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import { useMigration, DEPS } from '../context/MigrationContext';
+import type { SkippedRow } from '../lib/api';
 
 function downloadErrorSheet(entityId: string, entityName: string, errors: Array<{ row: number; error: string }>) {
   const cols   = templateFor(entityId);
@@ -17,6 +18,23 @@ function downloadErrorSheet(entityId: string, entityName: string, errors: Array<
   });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   void entityName;
+}
+
+function downloadSkippedSheet(entityId: string, skippedRows: SkippedRow[]) {
+  if (!skippedRows.length) return;
+  const payloadKeys = Array.from(new Set(skippedRows.flatMap(s => Object.keys(s.payload))));
+  const header = ['skipped_row', 'skip_reason', ...payloadKeys];
+  const rows   = skippedRows.map(s => [
+    String(s.row),
+    s.reason,
+    ...payloadKeys.map(k => String(s.payload[k] ?? '')),
+  ]);
+  const csv = [header, ...rows].map(r => r.map(c => `"${c.replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `${entityId}_skipped.csv`,
+  });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 export default function TrackerPage() {
@@ -132,6 +150,7 @@ export default function TrackerPage() {
                 <th className="tbl-th tbl-th--entity">Entity</th>
                 <th className="tbl-th">Status</th>
                 <th className="tbl-th tbl-th--num">Pushed</th>
+                <th className="tbl-th tbl-th--num">Skipped</th>
                 <th className="tbl-th tbl-th--num">Failed</th>
                 <th className="tbl-th">Issues</th>
                 <th className="tbl-th">Duration</th>
@@ -143,9 +162,10 @@ export default function TrackerPage() {
                 const realRes      = resultMap[e.id];
                 const isExp        = expanded.has(e.id);
                 const c            = countIssues(e.id);
-                const realErrCount = realRes?.errors?.length ?? 0;
-                const totalErrors  = realErrCount || c.err;
-                const hasExpandable = totalErrors > 0 || c.warn > 0 || e.failed > 0;
+                const realErrCount     = realRes?.errors?.length ?? 0;
+                const realSkippedCount = realRes?.skipped_rows?.length ?? 0;
+                const totalErrors      = realErrCount || c.err;
+                const hasExpandable    = totalErrors > 0 || c.warn > 0 || e.failed > 0 || realSkippedCount > 0;
                 const isActive     = e.status === 'done' || e.status === 'error' || e.status === 'running';
                 const isResumedFromDB = e.status === 'running' && !sessionPushed.has(e.id);
 
@@ -190,6 +210,13 @@ export default function TrackerPage() {
                       </td>
 
                       <td className="tbl-td tbl-td--num">
+                        {(e.status === 'done' || e.status === 'error') && e.skipped > 0
+                          ? <span className="tbl-num tbl-num--skipped">{e.skipped.toLocaleString()}</span>
+                          : <span className="tbl-dash">—</span>
+                        }
+                      </td>
+
+                      <td className="tbl-td tbl-td--num">
                         {(e.status === 'done' || e.status === 'error') && e.failed > 0
                           ? <span className="tbl-num tbl-num--failed">{e.failed.toLocaleString()}</span>
                           : <span className="tbl-dash">—</span>
@@ -203,14 +230,19 @@ export default function TrackerPage() {
                                 {totalErrors} err
                                 <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="tbl-issues-chev"><polyline points="6 9 12 15 18 9"/></svg>
                               </button>
-                            : c.warn > 0
+                            : realSkippedCount > 0
                               ? <button className={`tbl-issues-pill tbl-issues-pill--warn tbl-issues-pill--btn${isExp ? ' open' : ''}`}>
-                                  {c.warn} warn
+                                  {realSkippedCount} skipped
                                   <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="tbl-issues-chev"><polyline points="6 9 12 15 18 9"/></svg>
                                 </button>
-                              : <span className="tbl-issues-ok">
-                                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                </span>
+                              : c.warn > 0
+                                ? <button className={`tbl-issues-pill tbl-issues-pill--warn tbl-issues-pill--btn${isExp ? ' open' : ''}`}>
+                                    {c.warn} warn
+                                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="tbl-issues-chev"><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                : <span className="tbl-issues-ok">
+                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  </span>
                           : <span className="tbl-dash">—</span>
                         }
                       </td>
@@ -230,7 +262,7 @@ export default function TrackerPage() {
 
                     {e.status === 'running' && ps && (
                       <tr className="tbl-prog-row" aria-hidden="true">
-                        <td colSpan={6} className="tbl-prog-td">
+                        <td colSpan={7} className="tbl-prog-td">
                           <div className="tbl-prog-fill" style={{ width: `${ps.pct}%` }}>
                             <div className="tbl-prog-shimmer" />
                           </div>
@@ -240,9 +272,15 @@ export default function TrackerPage() {
 
                     {isExp && (
                       <tr className="tbl-exp-row" onClick={e2 => e2.stopPropagation()}>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <div className="tbl-exp-inner">
-                            <ExpandBody e={e} realErrors={realRes?.errors} onDownload={errs => downloadErrorSheet(e.id, e.name, errs)} />
+                            <ExpandBody
+                              e={e}
+                              realErrors={realRes?.errors}
+                              skippedRows={realRes?.skipped_rows}
+                              onDownload={errs => downloadErrorSheet(e.id, e.name, errs)}
+                              onDownloadSkipped={rows => downloadSkippedSheet(e.id, rows)}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -259,36 +297,72 @@ export default function TrackerPage() {
   );
 }
 
-function ExpandBody({ e, realErrors, onDownload }: {
+function ExpandBody({ e, realErrors, skippedRows, onDownload, onDownloadSkipped }: {
   e: { id: string; name: string };
   realErrors?: Array<{ row: number; error: string }>;
+  skippedRows?: SkippedRow[];
   onDownload: (errors: Array<{ row: number; error: string }>) => void;
+  onDownloadSkipped: (rows: SkippedRow[]) => void;
 }) {
+  const dlIcon = <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
+
   if (realErrors !== undefined) {
-    if (!realErrors.length) return <div className="exp-clean">✓ All records migrated — no errors.</div>;
+    const hasErrors   = realErrors.length > 0;
+    const hasSkipped  = (skippedRows?.length ?? 0) > 0;
+
+    if (!hasErrors && !hasSkipped) return <div className="exp-clean">✓ All records migrated — no errors or skips.</div>;
+
     return (
       <>
-        <div className="exp-head">
-          <div className="exp-head__left">
-            <span className="exp-head__count">{realErrors.length} failed row{realErrors.length > 1 ? 's' : ''}</span>
-            <span className="exp-head__hint">Fix the errors, re-upload the corrected sheet and run again.</span>
-          </div>
-          <button className="btn btn--sm btn--ghost exp-dl-btn" onClick={() => onDownload(realErrors)}>
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Download Error Sheet
-          </button>
-        </div>
-        <div className="exp-list">
-          {realErrors.map((it, i) => (
-            <div key={i} className="exp-issue exp-issue--error">
-              <div className="exp-sev">✕</div>
-              <div className="exp-body">
-                <div className="exp-row-lbl">Row {it.row}</div>
-                <div className="exp-msg">{it.error}</div>
+        {hasErrors && (
+          <>
+            <div className="exp-head">
+              <div className="exp-head__left">
+                <span className="exp-head__count">{realErrors.length} failed row{realErrors.length > 1 ? 's' : ''}</span>
+                <span className="exp-head__hint">Fix the errors, re-upload the corrected sheet and run again.</span>
               </div>
+              <button className="btn btn--sm btn--ghost exp-dl-btn" onClick={() => onDownload(realErrors)}>
+                {dlIcon} Download Error Sheet
+              </button>
             </div>
-          ))}
-        </div>
+            <div className="exp-list">
+              {realErrors.map((it, i) => (
+                <div key={i} className="exp-issue exp-issue--error">
+                  <div className="exp-sev">✕</div>
+                  <div className="exp-body">
+                    <div className="exp-row-lbl">Row {it.row}</div>
+                    <div className="exp-msg">{it.error}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {hasSkipped && (
+          <>
+            <div className="exp-head" style={hasErrors ? { marginTop: '12px' } : undefined}>
+              <div className="exp-head__left">
+                <span className="exp-head__count">{skippedRows!.length} skipped row{skippedRows!.length > 1 ? 's' : ''}</span>
+                <span className="exp-head__hint">These rows were not created — download to review and re-upload.</span>
+              </div>
+              <button className="btn btn--sm btn--ghost exp-dl-btn" onClick={() => onDownloadSkipped(skippedRows!)}>
+                {dlIcon} Download Skipped Sheet
+              </button>
+            </div>
+            <div className="exp-list">
+              {skippedRows!.map((it, i) => (
+                <div key={i} className="exp-issue exp-issue--warn">
+                  <div className="exp-sev">⚡</div>
+                  <div className="exp-body">
+                    <div className="exp-row-lbl">Row {it.row}</div>
+                    <div className="exp-msg">{it.reason}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </>
     );
   }
@@ -306,8 +380,7 @@ function ExpandBody({ e, realErrors, onDownload }: {
         {errIssues.length > 0 && (
           <button className="btn btn--sm btn--ghost exp-dl-btn"
             onClick={() => onDownload(errIssues.map(i => ({ row: i.row, error: `[${i.field}] ${i.msg}` })))}>
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Download Error Sheet
+            {dlIcon} Download Error Sheet
           </button>
         )}
       </div>

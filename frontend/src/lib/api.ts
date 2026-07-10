@@ -20,6 +20,8 @@ export type ExcelDryRunReport = {
   issues: Issue[];
 };
 
+export type SkippedRow = { row: number; reason: string; payload: Record<string, any> };
+
 export type MigrationResult = {
   entity: string;
   total: number;
@@ -28,6 +30,7 @@ export type MigrationResult = {
   failed: number;
   durationMs: number;
   errors: Array<{ row: number; error: string }>;
+  skipped_rows?: SkippedRow[];
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -102,16 +105,17 @@ export function migrateExcelAll(): Promise<MigrationResult[]> {
 export type PhaseStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'SKIPPED';
 
 export type MigrationPhaseResult = {
-  entity:      string;
-  status:      PhaseStatus;
-  total:       number;
-  success:     number;
-  skipped:     number;
-  failed:      number;
-  durationMs:  number;
-  completedAt: string | null;
-  startedAt:   string | null;
-  errors:      Array<{ row: number; error: string }>;
+  entity:       string;
+  status:       PhaseStatus;
+  total:        number;
+  success:      number;
+  skipped:      number;
+  failed:       number;
+  durationMs:   number;
+  completedAt:  string | null;
+  startedAt:    string | null;
+  errors:       Array<{ row: number; error: string }>;
+  skipped_rows: SkippedRow[];
 };
 
 export type MigrationStatusResponse = {

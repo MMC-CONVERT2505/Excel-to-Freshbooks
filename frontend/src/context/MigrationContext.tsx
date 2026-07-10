@@ -356,7 +356,7 @@ export function MigrationProvider({ children, workflow }: { children: ReactNode;
       if (phases.length) {
         for (const p of phases)
           if (p.status !== 'RUNNING' && p.entity)
-            saveStoredResult(p.entity, { entity: p.entity, total: p.total, success: p.success, skipped: p.skipped, failed: p.failed, durationMs: p.durationMs, errors: p.errors });
+            saveStoredResult(p.entity, { entity: p.entity, total: p.total, success: p.success, skipped: p.skipped, failed: p.failed, durationMs: p.durationMs, errors: p.errors, skipped_rows: p.skipped_rows });
         applyPhases(phases);
         const running = phases.filter(p => p.status === 'RUNNING');
         if (running.length > 0) {

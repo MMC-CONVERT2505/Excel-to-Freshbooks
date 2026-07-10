@@ -1932,7 +1932,7 @@ export async function getMigrationStatus(tokenId?: number | null) {
     orderBy: { createdAt: 'desc' },
     include: {
       records: {
-        where: { status: 'FAILED' },
+        where: { status: { in: ['FAILED', 'SKIPPED'] } },
         include: {
           errors: { orderBy: { attempt: 'desc' }, take: 1 },
         },
@@ -1948,22 +1948,32 @@ export async function getMigrationStatus(tokenId?: number | null) {
   }
 
   const phases = Array.from(latestByEntity.values()).map(phase => {
-    const errors = phase.records.map(record => ({
+    const failedRecords  = phase.records.filter(r => r.status === 'FAILED');
+    const skippedRecords = phase.records.filter(r => r.status === 'SKIPPED');
+
+    const errors = failedRecords.map(record => ({
       row:   record.sourceRow,
       error: record.errors[0]?.message ?? 'Unknown error',
     }));
 
+    const skipped_rows = skippedRecords.map(record => ({
+      row:     record.sourceRow,
+      reason:  record.errors[0]?.message ?? 'already exists in FreshBooks',
+      payload: record.sourcePayload as Record<string, any>,
+    }));
+
     return {
-      entity:      ENTITY_TYPE_TO_ID[String(phase.entity)] ?? String(phase.entity).toLowerCase(),
-      status:      phase.status,
-      total:       phase.totalRecords,
-      success:     phase.successCount,
-      skipped:     phase.skippedCount,
-      failed:      phase.failedCount,
-      durationMs:  phase.durationMs ?? 0,
-      completedAt: phase.completedAt?.toISOString() ?? null,
-      startedAt:   phase.startedAt?.toISOString()   ?? null,
+      entity:       ENTITY_TYPE_TO_ID[String(phase.entity)] ?? String(phase.entity).toLowerCase(),
+      status:       phase.status,
+      total:        phase.totalRecords,
+      success:      phase.successCount,
+      skipped:      phase.skippedCount,
+      failed:       phase.failedCount,
+      durationMs:   phase.durationMs ?? 0,
+      completedAt:  phase.completedAt?.toISOString() ?? null,
+      startedAt:    phase.startedAt?.toISOString()   ?? null,
       errors,
+      skipped_rows,
     };
   });
 

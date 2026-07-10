@@ -1497,8 +1497,9 @@ tr.tr-retrying td{animation:row-pulse 1.1s ease-in-out infinite;}
   font-variant-numeric: tabular-nums;
   font-weight: 700; font-size: 15px;
 }
-.tbl-num--pushed { color: #047857; }
-.tbl-num--failed { color: #B42318; }
+.tbl-num--pushed  { color: #047857; }
+.tbl-num--skipped { color: #92400E; }
+.tbl-num--failed  { color: #B42318; }
 .tbl-num-total   { color: var(--text-3); font-weight: 500; font-size: 13px; }
 .tbl-dash { color: var(--text-3); font-size: 14px; }
 
