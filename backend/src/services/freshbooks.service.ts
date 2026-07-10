@@ -670,12 +670,42 @@ export async function createService(body: Record<string, any>) {
 }
 
 // PUT /comments/business/{businessId}/service/{serviceId}
-// Updatable: name, income_account_id, billable, etc.
+// Updatable: name, billable, etc. (NOT income account — use updateTask for that)
 export async function updateService(serviceId: number, body: Record<string, any>) {
   const token = await getToken();
   const res = await axios.put(
     `${BASE}/comments/business/${businessId()}/service/${serviceId}`,
     { service: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+// GET /accounting/account/{accountId}/projects/tasks — fetch all tasks (income account lives here)
+export async function getTasks() {
+  const token = await getToken();
+  const allTasks: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/projects/tasks?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const data = res.data?.response?.result;
+    allTasks.push(...(data?.tasks || []));
+    pages = data?.pages ?? 1;
+    page++;
+  } while (page <= pages);
+  return allTasks;
+}
+
+// PUT /accounting/account/{accountId}/projects/tasks/{taskId}
+// field: account_uuid = income account UUID
+export async function updateTask(taskId: number, body: Record<string, any>) {
+  const token = await getToken();
+  const res = await axios.put(
+    `${BASE}/accounting/account/${accountId()}/projects/tasks/${taskId}`,
+    { task: body },
     { headers: authHeader(token.accessToken) }
   );
   return res.data;
@@ -997,8 +1027,8 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
 // Fetches the account number→UUID map ONCE, then updates each service.
 // Only sends income_account_id (not name/billable) to avoid FreshBooks rejections.
 async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
-  // Build account map once — not per row
-  const [coaRes, ledgerRes] = await Promise.all([getChartOfAccounts(), getLedgerAccounts()]);
+  // Build account number → UUID map and fetch tasks (income account lives on accounting tasks)
+  const [coaRes, ledgerRes, allTasks] = await Promise.all([getChartOfAccounts(), getLedgerAccounts(), getTasks()]);
   const numMap: Record<string, string> = {};
   function indexAccounts(items: any[]) {
     for (const a of items) {
@@ -1008,6 +1038,13 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
   }
   indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
   indexAccounts(ledgerRes?.accounts || []);
+
+  // Build name (lowercase) → task map so we can find task ID by service name
+  const taskByName: Record<string, any> = {};
+  for (const t of allTasks) {
+    if (t.name) taskByName[t.name.toLowerCase().trim()] = t;
+  }
+  console.log(`[SERVICES UPDATE] Loaded ${allTasks.length} tasks from accounting API`);
 
   let updated = 0, failed = 0;
   const errors: string[] = [];
@@ -1043,9 +1080,20 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
           console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ account "${acctNum}" not found`);
           continue;
         }
-        // income_account_id lives on the service_rate endpoint, not the service itself
-        const rateRes = await updateServiceRate(serviceId, rateVal ?? '0', uuid);
-        console.log(`[SERVICES UPDATE] rate response keys: ${JSON.stringify(Object.keys(rateRes?.service_rate ?? {}))}`);
+        // Income account lives on the accounting tasks API as account_uuid — match task by name
+        const task = taskByName[name.toLowerCase().trim()];
+        if (!task) {
+          failed++;
+          errors.push(`Row ${i + 2} (ID ${serviceId}): task not found for service "${name}"`);
+          console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ no matching task found`);
+          continue;
+        }
+        await updateTask(task.id, {
+          name:         task.name,
+          billable:     task.billable ?? true,
+          account_uuid: uuid,
+          rate:         task.rate ?? { amount: rateVal ?? '0.00', code: 'USD' },
+        });
       } else if (rateVal) {
         await updateServiceRate(serviceId, rateVal);
       }
