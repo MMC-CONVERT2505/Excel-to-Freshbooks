@@ -935,21 +935,28 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
 
   let updated = 0, failed = 0;
   const errors: string[] = [];
+  const total = groups.size;
+  let i = 0;
+  console.log(`[INVOICES UPDATE] Starting — ${total} invoices`);
 
   for (const [rawId, lineRows] of groups) {
+    i++;
     try {
       const header = lineRows[0];
       const invoiceId = Number(rawId);
-      if (isNaN(invoiceId)) { failed++; errors.push(`ID "${rawId}": not a valid number`); continue; }
+      if (isNaN(invoiceId)) {
+        failed++;
+        errors.push(`ID "${rawId}": not a valid number`);
+        console.log(`[INVOICES UPDATE] (${i}/${total}) ID "${rawId}" → ❌ not a valid number`);
+        continue;
+      }
 
-      // Invoice-level fields from first row
       const invoiceBody: Record<string, any> = {};
       const invoiceFields = ['notes', 'terms', 'due_offset_days', 'po_number', 'language', 'currency_code'];
       for (const f of invoiceFields) {
         if (header[f] !== undefined && header[f] !== '') invoiceBody[f] = header[f];
       }
 
-      // Build lines array — only include rows that have at least a qty or unit_cost
       const lines = lineRows
         .filter(r => r['line_qty'] !== '' || r['line_unit_cost'] !== '')
         .map(r => {
@@ -969,14 +976,18 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
 
       if (lines.length > 0) invoiceBody.lines = lines;
 
+      const invNum = header['invoice_number'] ?? rawId;
       await updateInvoice(invoiceId, invoiceBody);
       updated++;
+      console.log(`[INVOICES UPDATE] (${i}/${total}) #${invNum} (ID ${invoiceId}) → ✓ updated`);
     } catch (err: any) {
       failed++;
-      errors.push(`ID ${rawId}: ${err?.response?.data?.message || err.message}`);
+      const msg = err?.response?.data?.message || err.message;
+      errors.push(`ID ${rawId}: ${msg}`);
+      console.log(`[INVOICES UPDATE] (${i}/${total}) ID ${rawId} → ❌ ${msg}`);
     }
   }
-
+  console.log(`[INVOICES UPDATE] Done — updated: ${updated}, failed: ${failed}`);
   return { updated, failed, errors };
 }
 
@@ -998,36 +1009,51 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
 
   let updated = 0, failed = 0;
   const errors: string[] = [];
+  console.log(`[SERVICES UPDATE] Starting — ${rows.length} rows`);
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rawId = row['id'] ?? row['freshbooks_id'] ?? row['ID'];
-    if (rawId == null || rawId === '') { failed++; errors.push(`Row ${i + 2}: missing id`); continue; }
+    if (rawId == null || rawId === '') {
+      failed++;
+      errors.push(`Row ${i + 2}: missing id`);
+      console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) Row ${i + 2} → ❌ missing id`);
+      continue;
+    }
     const serviceId = Number(rawId);
-    if (isNaN(serviceId)) { failed++; errors.push(`Row ${i + 2}: invalid id "${rawId}"`); continue; }
+    if (isNaN(serviceId)) {
+      failed++;
+      errors.push(`Row ${i + 2}: invalid id "${rawId}"`);
+      console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) Row ${i + 2} → ❌ invalid id "${rawId}"`);
+      continue;
+    }
 
+    const name = String(row['name'] ?? serviceId);
     try {
-      // Rate lives on a separate sub-endpoint
       if (row['rate'] !== undefined && row['rate'] !== '') {
         await updateServiceRate(serviceId, String(row['rate']));
       }
-      // Income account — resolve number → UUID, then update
       const acctNum = String(row['income_account_number'] ?? '').trim();
       if (acctNum) {
         const uuid = numMap[acctNum];
         if (!uuid) {
           failed++;
           errors.push(`Row ${i + 2} (ID ${serviceId}): account "${acctNum}" not found in FreshBooks chart of accounts`);
+          console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ account "${acctNum}" not found`);
           continue;
         }
         await updateService(serviceId, { income_account_id: uuid });
       }
       updated++;
+      console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ✓ updated`);
     } catch (err: any) {
       failed++;
-      errors.push(`Row ${i + 2} (ID ${serviceId}): ${err?.response?.data?.message || err.message}`);
+      const msg = err?.response?.data?.message || err.message;
+      errors.push(`Row ${i + 2} (ID ${serviceId}): ${msg}`);
+      console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ ${msg}`);
     }
   }
+  console.log(`[SERVICES UPDATE] Done — updated: ${updated}, failed: ${failed}`);
   return { updated, failed, errors };
 }
 
