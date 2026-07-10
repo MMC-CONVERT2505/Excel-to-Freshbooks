@@ -669,6 +669,18 @@ export async function createService(body: Record<string, any>) {
   return res.data;
 }
 
+// PUT /comments/business/{businessId}/service/{serviceId}
+// Updatable: name, income_account_id, billable, etc.
+export async function updateService(serviceId: number, body: Record<string, any>) {
+  const token = await getToken();
+  const res = await axios.put(
+    `${BASE}/comments/business/${businessId()}/service/${serviceId}`,
+    { service: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
 // PUT /comments/business/{businessId}/service/{serviceId}/rate
 // Only updatable field: rate (string, e.g. "150.00")
 export async function updateServiceRate(serviceId: number, rate: string) {
@@ -1072,8 +1084,33 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
     extractRecords: (d: any) => d.response?.result?.services || [],
     deleteOne: async () => { throw Object.assign(new Error('Services cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async (id: number, body: Record<string, any>) => {
-      if (!body.rate) throw Object.assign(new Error('Services update requires a "rate" field'), { statusCode: 400 });
-      return updateServiceRate(id, String(body.rate));
+      // Resolve income_account_number → UUID before sending to FreshBooks
+      if (body.income_account_number) {
+        const coaRes = await getChartOfAccounts();
+        const coaAccounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
+        const ledgerRes = await getLedgerAccounts();
+        const ledgerAccounts: any[] = ledgerRes?.accounts || [];
+        const allAccounts = [...coaAccounts, ...ledgerAccounts];
+        const numMap: Record<string, string> = {};
+        function indexAccounts(items: any[]) {
+          for (const a of items) {
+            if (a.account_number && a.account_uuid) numMap[a.account_number] = a.account_uuid;
+            if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+          }
+        }
+        indexAccounts(allAccounts);
+        const uuid = numMap[body.income_account_number];
+        if (uuid) body = { ...body, income_account_id: uuid };
+        delete body.income_account_number;
+      }
+      // Update rate separately if provided (rate lives on a different sub-endpoint)
+      if (body.rate) {
+        await updateServiceRate(id, String(body.rate));
+        const { rate: _r, ...rest } = body;
+        body = rest;
+      }
+      if (Object.keys(body).length === 0) return;
+      return updateService(id, body);
     },
   },
 };
