@@ -1694,9 +1694,15 @@ export async function migrateExpenseCategories(tokenId: number | null = null): P
 export async function migrateServices(tokenId: number | null = null): Promise<MigrationResult> {
   const rows = await readUploadedRows('services', tokenId);
 
+  // Fetch both endpoints: COA has JE-history accounts, ledger has ALL accounts.
+  // Merge so income_account_number lookup works even for accounts with no JE history.
   const coaRes = await getChartOfAccounts();
-  const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
-  const { numberMap, subTypeByUuid } = buildMaps(accounts);
+  const coaAccounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
+  const { numberMap } = buildMaps(coaAccounts);
+
+  const ledgerRes = await getLedgerAccounts();
+  const { numberMap: ledgerMap } = buildMaps(ledgerRes?.accounts || []);
+  Object.assign(numberMap, ledgerMap);
 
   const existingServicesRes = await getServices();
   const existingServices: any[] = existingServicesRes?.response?.result?.services || [];
@@ -1709,9 +1715,9 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
 
     let income_account_id: string | undefined;
     if (row.income_account_number) {
-      const uuid = numberMap[row.income_account_number]
+      // Trust the column name — no sub_type filter. FreshBooks validates on its end.
+      income_account_id = numberMap[row.income_account_number]
         ?? numberMap[`name::${row.income_account_number.toLowerCase()}`];
-      if (uuid && subTypeByUuid[uuid] === 'Income') income_account_id = uuid;
     }
     if (income_account_id) payload.income_account_id = income_account_id;
 
