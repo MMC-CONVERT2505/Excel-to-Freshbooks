@@ -980,6 +980,56 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
   return { updated, failed, errors };
 }
 
+// ── SERVICES EXPORT (resolves income_account_id UUID → account_number) ──────────
+// The raw service list from FreshBooks has income_account_id as a UUID. This export
+// builds a reverse map (UUID → account_number) so the sheet is human-readable and
+// can be re-uploaded directly for bulk updates.
+async function exportServicesExcel(): Promise<Buffer> {
+  const [servicesRes, coaRes, ledgerRes] = await Promise.all([
+    getServices(),
+    getChartOfAccounts(),
+    getLedgerAccounts(),
+  ]);
+
+  const services: any[] = servicesRes?.response?.result?.services || [];
+
+  // Build UUID → account_number reverse map from both endpoints
+  const uuidToNumber: Record<string, string> = {};
+  function indexAccounts(items: any[]) {
+    for (const a of items) {
+      if (a.account_uuid && a.account_number) uuidToNumber[a.account_uuid] = a.account_number;
+      if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+    }
+  }
+  indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
+  indexAccounts(ledgerRes?.accounts || []);
+
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  if (services.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['id', '(no records found)']]), 'services');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows = services.map((s: any) => ({
+    id:                    s.id ?? '',
+    name:                  s.name ?? '',
+    rate:                  s.rate?.amount ?? s.rate ?? '',
+    billable:              s.billable ?? '',
+    income_account_number: s.income_account_id ? (uuidToNumber[s.income_account_id] ?? s.income_account_id) : '',
+  }));
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  if (ws['A1']) ws['A1'].s = { font: { bold: true } };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'services');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 // ── INVOICE FULL EXPORT (with line items, matches upload template format) ────────
 // Fetches all invoices with include[]=lines so each line item becomes a separate row.
 async function exportInvoicesExcel(): Promise<Buffer> {
@@ -1082,6 +1132,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'services': {
     getAll: getServices,
     extractRecords: (d: any) => d.response?.result?.services || [],
+    exportFn: exportServicesExcel,
     deleteOne: async () => { throw Object.assign(new Error('Services cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async (id: number, body: Record<string, any>) => {
       // Resolve income_account_number → UUID before sending to FreshBooks
