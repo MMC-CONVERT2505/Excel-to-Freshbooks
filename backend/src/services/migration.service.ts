@@ -1996,8 +1996,9 @@ export async function getMigrationStatus(tokenId?: number | null) {
       completedAt: prog.completed && prog.completedAt
         ? new Date(prog.completedAt).toISOString()
         : null,
-      startedAt:   new Date(prog.startedAt).toISOString(),
-      errors:      [],
+      startedAt:    new Date(prog.startedAt).toISOString(),
+      errors:       [],
+      skipped_rows: [],
     };
     const idx = phases.findIndex(p => p.entity === entity);
     if (idx >= 0) {
