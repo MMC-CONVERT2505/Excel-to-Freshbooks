@@ -980,6 +980,57 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
   return { updated, failed, errors };
 }
 
+// ── SERVICES BULK UPDATE ─────────────────────────────────────────────────────────
+// Fetches the account number→UUID map ONCE, then updates each service.
+// Only sends income_account_id (not name/billable) to avoid FreshBooks rejections.
+async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
+  // Build account map once — not per row
+  const [coaRes, ledgerRes] = await Promise.all([getChartOfAccounts(), getLedgerAccounts()]);
+  const numMap: Record<string, string> = {};
+  function indexAccounts(items: any[]) {
+    for (const a of items) {
+      if (a.account_number && a.account_uuid) numMap[a.account_number] = a.account_uuid;
+      if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+    }
+  }
+  indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
+  indexAccounts(ledgerRes?.accounts || []);
+
+  let updated = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawId = row['id'] ?? row['freshbooks_id'] ?? row['ID'];
+    if (rawId == null || rawId === '') { failed++; errors.push(`Row ${i + 2}: missing id`); continue; }
+    const serviceId = Number(rawId);
+    if (isNaN(serviceId)) { failed++; errors.push(`Row ${i + 2}: invalid id "${rawId}"`); continue; }
+
+    try {
+      // Rate lives on a separate sub-endpoint
+      if (row['rate'] !== undefined && row['rate'] !== '') {
+        await updateServiceRate(serviceId, String(row['rate']));
+      }
+      // Income account — resolve number → UUID, then update
+      const acctNum = String(row['income_account_number'] ?? '').trim();
+      if (acctNum) {
+        const uuid = numMap[acctNum];
+        if (!uuid) {
+          failed++;
+          errors.push(`Row ${i + 2} (ID ${serviceId}): account "${acctNum}" not found in FreshBooks chart of accounts`);
+          continue;
+        }
+        await updateService(serviceId, { income_account_id: uuid });
+      }
+      updated++;
+    } catch (err: any) {
+      failed++;
+      errors.push(`Row ${i + 2} (ID ${serviceId}): ${err?.response?.data?.message || err.message}`);
+    }
+  }
+  return { updated, failed, errors };
+}
+
 // ── SERVICES EXPORT (resolves income_account_id UUID → account_number) ──────────
 // The raw service list from FreshBooks has income_account_id as a UUID. This export
 // builds a reverse map (UUID → account_number) so the sheet is human-readable and
@@ -1133,35 +1184,10 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
     getAll: getServices,
     extractRecords: (d: any) => d.response?.result?.services || [],
     exportFn: exportServicesExcel,
+    bulkUpdateFn: bulkUpdateServices,
     deleteOne: async () => { throw Object.assign(new Error('Services cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async (id: number, body: Record<string, any>) => {
-      // Resolve income_account_number → UUID before sending to FreshBooks
-      if (body.income_account_number) {
-        const coaRes = await getChartOfAccounts();
-        const coaAccounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
-        const ledgerRes = await getLedgerAccounts();
-        const ledgerAccounts: any[] = ledgerRes?.accounts || [];
-        const allAccounts = [...coaAccounts, ...ledgerAccounts];
-        const numMap: Record<string, string> = {};
-        function indexAccounts(items: any[]) {
-          for (const a of items) {
-            if (a.account_number && a.account_uuid) numMap[a.account_number] = a.account_uuid;
-            if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
-          }
-        }
-        indexAccounts(allAccounts);
-        const uuid = numMap[body.income_account_number];
-        if (uuid) body = { ...body, income_account_id: uuid };
-        delete body.income_account_number;
-      }
-      // Update rate separately if provided (rate lives on a different sub-endpoint)
-      if (body.rate) {
-        await updateServiceRate(id, String(body.rate));
-        const { rate: _r, ...rest } = body;
-        body = rest;
-      }
-      if (Object.keys(body).length === 0) return;
-      return updateService(id, body);
+      if (body.rate) await updateServiceRate(id, String(body.rate));
     },
   },
 };
