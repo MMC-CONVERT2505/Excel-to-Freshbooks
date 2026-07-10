@@ -683,11 +683,13 @@ export async function updateService(serviceId: number, body: Record<string, any>
 
 // PUT /comments/business/{businessId}/service/{serviceId}/rate
 // Only updatable field: rate (string, e.g. "150.00")
-export async function updateServiceRate(serviceId: number, rate: string) {
+export async function updateServiceRate(serviceId: number, rate: string, incomeAccountId?: string) {
   const token = await getToken();
+  const body: Record<string, any> = { rate };
+  if (incomeAccountId) body.income_account_id = incomeAccountId;
   const res = await axios.put(
     `${BASE}/comments/business/${businessId()}/service/${serviceId}/rate`,
-    { service_rate: { rate } },
+    { service_rate: body },
     { headers: authHeader(token.accessToken) }
   );
   return res.data;
@@ -1030,10 +1032,9 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
 
     const name = String(row['name'] ?? serviceId);
     try {
-      if (row['rate'] !== undefined && row['rate'] !== '') {
-        await updateServiceRate(serviceId, String(row['rate']));
-      }
       const acctNum = String(row['income_account_number'] ?? '').trim();
+      const rateVal = row['rate'] !== undefined && row['rate'] !== '' ? String(row['rate']) : undefined;
+
       if (acctNum) {
         const uuid = numMap[acctNum];
         if (!uuid) {
@@ -1042,9 +1043,11 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
           console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ account "${acctNum}" not found`);
           continue;
         }
-        console.log(`[SERVICES UPDATE] sending income_account_id="${uuid}" for acctNum="${acctNum}" service="${name}"`);
-        const updateRes = await updateService(serviceId, { id: serviceId, name: String(row['name'] ?? ''), income_account_id: uuid });
-        console.log(`[SERVICES UPDATE] full response service keys: ${JSON.stringify(Object.keys(updateRes?.service ?? {}))}`);
+        // income_account_id lives on the service_rate endpoint, not the service itself
+        const rateRes = await updateServiceRate(serviceId, rateVal ?? '0', uuid);
+        console.log(`[SERVICES UPDATE] rate response keys: ${JSON.stringify(Object.keys(rateRes?.service_rate ?? {}))}`);
+      } else if (rateVal) {
+        await updateServiceRate(serviceId, rateVal);
       }
       updated++;
       console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ✓ updated`);
