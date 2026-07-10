@@ -907,6 +907,67 @@ export async function deleteJournalEntry(entryId: string) {
   return res.data;
 }
 
+// ── INVOICE BULK UPDATE (groups rows by freshbooks_id, builds lines array) ───────
+// The export sheet has one row per line item. To update, rows are grouped by
+// freshbooks_id, invoice-level fields are taken from the first row in each group,
+// and line fields (line_name, line_qty, line_unit_cost, etc.) become the lines[].
+async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
+  // Group rows by freshbooks_id
+  const groups = new Map<string, Array<Record<string, any>>>();
+  for (const row of rows) {
+    const rawId = String(row['freshbooks_id'] ?? row['id'] ?? row['ID'] ?? '').trim();
+    if (!rawId) continue;
+    if (!groups.has(rawId)) groups.set(rawId, []);
+    groups.get(rawId)!.push(row);
+  }
+
+  let updated = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (const [rawId, lineRows] of groups) {
+    try {
+      const header = lineRows[0];
+      const invoiceId = Number(rawId);
+      if (isNaN(invoiceId)) { failed++; errors.push(`ID "${rawId}": not a valid number`); continue; }
+
+      // Invoice-level fields from first row
+      const invoiceBody: Record<string, any> = {};
+      const invoiceFields = ['notes', 'terms', 'due_offset_days', 'po_number', 'language', 'currency_code'];
+      for (const f of invoiceFields) {
+        if (header[f] !== undefined && header[f] !== '') invoiceBody[f] = header[f];
+      }
+
+      // Build lines array — only include rows that have at least a qty or unit_cost
+      const lines = lineRows
+        .filter(r => r['line_qty'] !== '' || r['line_unit_cost'] !== '')
+        .map(r => {
+          const lineObj: Record<string, any> = {
+            name:        r['line_name']        ?? '',
+            description: r['line_description'] ?? '',
+            qty:         Number(r['line_qty'])  || 1,
+            unit_cost: {
+              amount: String(r['line_unit_cost'] ?? 0),
+              code:   header['currency_code'] || 'USD',
+            },
+          };
+          if (r['tax_name1']) { lineObj.taxName1 = r['tax_name1']; lineObj.taxAmount1 = Number(r['tax_amount1']) || 0; }
+          if (r['tax_name2']) { lineObj.taxName2 = r['tax_name2']; lineObj.taxAmount2 = Number(r['tax_amount2']) || 0; }
+          return lineObj;
+        });
+
+      if (lines.length > 0) invoiceBody.lines = lines;
+
+      await updateInvoice(invoiceId, invoiceBody);
+      updated++;
+    } catch (err: any) {
+      failed++;
+      errors.push(`ID ${rawId}: ${err?.response?.data?.message || err.message}`);
+    }
+  }
+
+  return { updated, failed, errors };
+}
+
 // ── INVOICE FULL EXPORT (with line items, matches upload template format) ────────
 // Fetches all invoices with include[]=lines so each line item becomes a separate row.
 async function exportInvoicesExcel(): Promise<Buffer> {
@@ -985,6 +1046,7 @@ interface EntityCfg {
   updateOne: AnyUpdateFn;
   stringId?: boolean;  // journal entries use string IDs
   exportFn?: () => Promise<Buffer>;  // custom export override (e.g. invoices with line items)
+  bulkUpdateFn?: (rows: Array<Record<string, any>>) => Promise<{ updated: number; failed: number; errors: string[] }>;
 }
 
 const ENTITY_CFG: Record<string, EntityCfg> = {
@@ -993,7 +1055,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem },
   'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense },
   'income':            { getAll: getIncome,          extractRecords: d => d.response?.result?.other_incomes || [],   deleteOne: deleteIncome,        updateOne: updateIncome },
-  'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel },
+  'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel, bulkUpdateFn: bulkUpdateInvoices },
   'bills':             { getAll: getBills,           extractRecords: d => d.response?.result?.bills || [],           deleteOne: deleteBill,          updateOne: updateBill },
   'credit-notes':      { getAll: getCreditNotes,     extractRecords: d => d.response?.result?.credit_notes || [],    deleteOne: deleteCreditNote,    updateOne: updateCreditNote },
   'invoice-payments':  { getAll: getPayments,        extractRecords: d => d.response?.result?.payments || [],        deleteOne: deletePayment,       updateOne: updatePayment },
@@ -1098,6 +1160,7 @@ export async function bulkUpdateEntity(entityId: string): Promise<{ updated: num
   });
   if (!sheet) throw Object.assign(new Error(`No uploaded sheet found for "${entityId}" — upload the file first`), { statusCode: 400 });
   const rows = sheet.rows as Array<Record<string, any>>;
+  if (cfg.bulkUpdateFn) return cfg.bulkUpdateFn(rows);
   let updated = 0, failed = 0;
   const errors: string[] = [];
   for (let i = 0; i < rows.length; i++) {
