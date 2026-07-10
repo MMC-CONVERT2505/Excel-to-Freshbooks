@@ -1042,7 +1042,7 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
           console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ❌ account "${acctNum}" not found`);
           continue;
         }
-        await updateService(serviceId, { income_account_id: uuid });
+        await updateService(serviceId, { id: serviceId, name: String(row['name'] ?? ''), income_account_id: uuid });
       }
       updated++;
       console.log(`[SERVICES UPDATE] (${i + 1}/${rows.length}) ${name} → ✓ updated`);
