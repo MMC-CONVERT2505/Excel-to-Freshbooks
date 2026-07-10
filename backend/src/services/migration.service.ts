@@ -123,12 +123,21 @@ function isAlreadyExists(err: any): boolean {
   });
 }
 
+const SKIP_SENTINEL = Symbol('skip');
+type SkipResult = { [SKIP_SENTINEL]: true; reason: string; rawResponse: any };
+function makeSkip(err: any): SkipResult {
+  const errors = err?.response?.data?.response?.errors || [];
+  const reason = errors.map((e: any) => e.message).join('; ') || err?.message || 'already exists';
+  return { [SKIP_SENTINEL]: true, reason, rawResponse: err?.response?.data ?? null };
+}
+function isSkip(res: any): res is SkipResult { return res != null && res[SKIP_SENTINEL] === true; }
+
 async function callWithRetry(fn: () => Promise<any>): Promise<any> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
-      if (isAlreadyExists(err)) return null;
+      if (isAlreadyExists(err)) return makeSkip(err);
       const status = err?.response?.status;
       const isNetwork = !status && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'].includes(err.code);
       const isServerError = status >= 500 && status <= 599; // 502, 503, 504 = FreshBooks temporary errors
@@ -256,14 +265,23 @@ async function runMigration(
 
     try {
       const res = await callWithRetry(() => handler(row));
-      if (res !== null) {
+      if (!isSkip(res)) {
         result.success++;
         await prisma.migrationRecord.update({ where: { id: record.id }, data: { status: 'SUCCESS', lastAttemptAt: new Date(), attemptCount: { increment: 1 } } });
         console.log(`${label} → ✓ pushed`);
       } else {
         result.skipped++;
-        await prisma.migrationRecord.update({ where: { id: record.id }, data: { status: 'SKIPPED' } });
-        console.log(`${label} → ⚡ skipped (already exists)`);
+        await prisma.migrationRecord.update({ where: { id: record.id }, data: { status: 'SKIPPED', lastAttemptAt: new Date(), attemptCount: { increment: 1 } } });
+        await prisma.migrationError.create({
+          data: {
+            recordId:    record.id,
+            attempt:     1,
+            category:    'DUPLICATE',
+            message:     res.reason,
+            rawResponse: res.rawResponse,
+          },
+        });
+        console.log(`${label} → ⚡ skipped: ${res.reason}`);
       }
     } catch (err: any) {
       result.failed++;
