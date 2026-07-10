@@ -377,26 +377,28 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
   );
 
   return runMigration('clients', rows, async (row) => {
+    const org = row.organization?.trim() || '';
+    if (!org) throw new Error('organization is required');
     await createClient({
-      fname: row.fname,
-      lname: row.lname,
-      email: row.email,
-      organization: row.organization,
+      fname:        row.fname?.trim() || undefined,
+      lname:        row.lname?.trim() || undefined,
+      email:        row.email?.trim() || undefined,
+      organization: org,
       currency_code: row.currency_code || 'USD',
-      language: row.language || 'en',
-      bus_phone: row.bus_phone,
-      mob_phone: row.mob_phone,
-      p_street: row.p_street,
-      p_street2: row.p_street2,
-      p_city: row.p_city,
-      p_province: row.p_province,
-      p_code: row.p_code,
-      p_country: row.p_country,
-      note: row.note,
+      language:      row.language || 'en',
+      bus_phone:     row.bus_phone,
+      mob_phone:     row.mob_phone,
+      p_street:      row.p_street,
+      p_street2:     row.p_street2,
+      p_city:        row.p_city,
+      p_province:    row.p_province,
+      p_code:        row.p_code,
+      p_country:     row.p_country,
+      note:          row.note,
     });
   },
-  (row) => `${row.fname} ${row.lname}`.trim() || row.organization,
-  (row) => existingKeys.has(`${row.fname}|${row.lname}|${row.organization}`.toLowerCase())
+  (row) => row.organization?.trim() || `${row.fname || ''} ${row.lname || ''}`.trim() || row.email || '(blank)',
+  (row) => existingKeys.has(`${row.fname || ''}|${row.lname || ''}|${row.organization || ''}`.toLowerCase())
   );
 }
 

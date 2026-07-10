@@ -38,7 +38,7 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   clients: {
     id: 'clients',
     name: 'Clients',
-    required: ['organization'],
+    required: ['organization', 'fname', 'lname'],
   },
   vendors: {
     id: 'vendors',
@@ -388,16 +388,24 @@ async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[],
     }
   }
 
-  // Whitespace-only values in required fields
+  // Missing or whitespace-only values in required fields
   for (let i = 0; i < rows.length; i++) {
     for (const req of entity.required) {
       const options = Array.isArray(req) ? req : [req];
-      for (const col of options) {
-        const raw = rows[i][col];
-        if (raw !== undefined && raw !== '' && String(raw).trim() === '')
-          push(issues, i + 2, 'error', col, '(spaces only)',
-            `Column "${col}" contains only whitespace — treated as blank by FreshBooks.`,
-            'Clear the cell or enter a real value.');
+      const allMissing = options.every(col => !String(rows[i][col] ?? '').trim());
+      if (allMissing) {
+        const col = options[0];
+        push(issues, i + 2, 'error', col, '(blank)',
+          `"${options.join(' or ')}" is required but missing in row ${i + 2}.`,
+          `Fill in the ${options.join(' or ')} column before uploading.`);
+      } else {
+        for (const col of options) {
+          const raw = rows[i][col];
+          if (raw !== undefined && raw !== '' && String(raw).trim() === '')
+            push(issues, i + 2, 'error', col, '(spaces only)',
+              `Column "${col}" contains only whitespace — treated as blank by FreshBooks.`,
+              'Clear the cell or enter a real value.');
+        }
       }
     }
   }
