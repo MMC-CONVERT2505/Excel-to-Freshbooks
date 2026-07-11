@@ -108,7 +108,8 @@ export const getActivity = wrap(async (_req: Request, res: Response) => {
     runs: runs.map(r => ({
       id:          r.id,
       status:      r.status,
-      company:     r.token?.companyLabel || r.token?.accountId || 'Unknown',
+      company:     r.token?.companyLabel || r.token?.accountId || 'No company linked',
+      triggeredBy: r.triggeredBy || null,
       startedAt:   r.startedAt?.toISOString()   ?? null,
       completedAt: r.completedAt?.toISOString() ?? null,
       phases: r.phases.map(p => ({

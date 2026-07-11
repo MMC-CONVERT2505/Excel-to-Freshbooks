@@ -19,6 +19,7 @@ import {
   createService, setServiceRate, getServices,
   getJournalEntries, createJournalEntry,
   getSessionTokenId,
+  getSessionTriggeredBy,
 } from './freshbooks.service.js';
 
 // ── Per-session key helper ────────────────────────────────────────────────────
@@ -227,7 +228,13 @@ async function runMigration(
 
   if (!activeRun) {
     activeRun = await prisma.migrationRun.create({
-      data: { status: 'RUNNING', startedAt: new Date(), heartbeatAt: new Date(), tokenId: tokenId ?? null },
+      data: {
+        status:      'RUNNING',
+        startedAt:   new Date(),
+        heartbeatAt: new Date(),
+        tokenId:     tokenId ?? null,
+        triggeredBy: getSessionTriggeredBy(),
+      },
     });
   }
 
@@ -1922,22 +1929,28 @@ const ENTITY_TYPE_TO_ID: Record<string, string> = {
 };
 
 export async function getMigrationStatus(tokenId?: number | null) {
-  // Scope to the session's tokenId so each user sees only their own history.
-  // Falls back to isCurrent token for unauthenticated / legacy calls.
-  let scopeTokenId = tokenId ?? null;
-  if (!scopeTokenId) {
-    const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } });
-    scopeTokenId = currentToken?.id ?? null;
+  // Resolve the FreshBooks accountId (stable identifier across re-logins).
+  // We filter by accountId so history persists even after reconnecting FreshBooks.
+  let scopeAccountId: string | null = null;
+  if (tokenId) {
+    const tok = await prisma.freshbooksToken.findUnique({ where: { id: tokenId }, select: { accountId: true } });
+    scopeAccountId = tok?.accountId ?? null;
+  }
+  if (!scopeAccountId) {
+    const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true }, select: { accountId: true } });
+    scopeAccountId = currentToken?.accountId ?? null;
   }
 
-  // Get the most recent phase for EACH entity across ALL runs for this company.
-  // We do this because DAG scheduling can create multiple runs:
-  // fast entities complete their run, later entities create a new one.
-  // Grouping by entity gives the true last-known state per entity.
   const allPhases = await prisma.migrationPhase.findMany({
     where: {
       status: { in: ['COMPLETED', 'PARTIAL', 'FAILED', 'RUNNING'] },
-      ...(scopeTokenId ? { run: { tokenId: scopeTokenId } } : {}),
+      // Match runs for this FreshBooks account OR legacy runs with no tokenId
+      ...(scopeAccountId ? {
+        OR: [
+          { run: { token: { accountId: scopeAccountId } } },
+          { run: { tokenId: null } },
+        ],
+      } : {}),
     },
     orderBy: { createdAt: 'desc' },
     include: {

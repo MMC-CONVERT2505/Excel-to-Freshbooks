@@ -7,7 +7,7 @@ const ADMIN_API = `${API}/api/admin`;
 
 type User = { id: number; email: string; name: string; role: string; createdAt: string };
 type Phase = { entity: string; status: string; total: number; success: number; failed: number; skipped: number; startedAt: string | null; durationMs: number };
-type Run  = { id: number; status: string; company: string; startedAt: string | null; completedAt: string | null; phases: Phase[] };
+type Run  = { id: number; status: string; company: string; triggeredBy: string | null; startedAt: string | null; completedAt: string | null; phases: Phase[] };
 type Stats = { userCount: number; runCount: number; activeRuns: number; connectedAccounts: number };
 
 function authHeaders() {
@@ -365,7 +365,14 @@ export default function AdminPage() {
                 >
                   <StatusBadge status={run.status} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{run.company}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>
+                      {run.company}
+                      {run.triggeredBy && (
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: 'var(--text-3)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '1px 8px' }}>
+                          {run.triggeredBy}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
                       Run #{run.id} · Started {fmtDate(run.startedAt)}
                       {run.completedAt && ` · Finished ${fmtDate(run.completedAt)}`}

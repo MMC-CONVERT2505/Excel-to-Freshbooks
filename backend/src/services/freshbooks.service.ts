@@ -13,10 +13,11 @@ interface SessionCtx {
   accountId:    string;
   businessUuid: string;
   businessId:   string;
+  triggeredBy?: string | null;
 }
 const sessionCtx = new AsyncLocalStorage<SessionCtx>();
 
-export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>): Promise<T> {
+export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, triggeredBy?: string | null): Promise<T> {
   const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
   if (!token) throw new Error(`Token ${tokenId} not found in DB`);
   const ctx: SessionCtx = {
@@ -24,14 +25,17 @@ export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>): Pr
     accountId:    token.accountId    || _accountId,
     businessUuid: token.businessUuid || _businessUuid,
     businessId:   token.businessId   || _businessId,
+    triggeredBy:  triggeredBy ?? null,
   };
   return sessionCtx.run(ctx, fn);
 }
 
-// Returns the tokenId for the current async execution context (set by runWithToken).
-// Used by migration.service.ts to scope liveProgress / cancelledEntities per user.
 export function getSessionTokenId(): number | null {
   return sessionCtx.getStore()?.tokenId ?? null;
+}
+
+export function getSessionTriggeredBy(): string | null {
+  return sessionCtx.getStore()?.triggeredBy ?? null;
 }
 
 // Legacy module-level globals — used as fallback when no session context is set

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import {
   migrateClients,
   migrateItems,
@@ -28,12 +29,17 @@ const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFun
 
 const tid = (req: Request) => (req as any).sessionTokenId as number | null ?? null;
 
-// Run a migration inside an isolated session context.
-// runWithToken() sets AsyncLocalStorage so all FreshBooks API calls inside fn()
-// use THIS session's accountId — never another concurrent user's.
+const JWT_SECRET = process.env.APP_JWT_SECRET || 'changeme-set-APP_JWT_SECRET-in-env';
+function extractUser(req: Request): string | null {
+  const h = req.headers.authorization;
+  if (!h?.startsWith('Bearer ')) return null;
+  try { const p = jwt.verify(h.slice(7), JWT_SECRET) as any; return p.email || p.name || null; } catch { return null; }
+}
+
 async function withSession<T>(req: Request, fn: (tokenId: number | null) => Promise<T>): Promise<T> {
-  const tokenId = tid(req);
-  return tokenId ? runWithToken(tokenId, () => fn(tokenId)) : fn(null);
+  const tokenId    = tid(req);
+  const triggeredBy = extractUser(req);
+  return tokenId ? runWithToken(tokenId, () => fn(tokenId), triggeredBy) : fn(null);
 }
 
 export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateClients(t))); });
