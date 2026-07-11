@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma.js';
+import { addLogClient } from '../lib/logStream.js';
 
 const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFunction) => {
   try { await fn(req, res, next); } catch (err) { next(err); }
@@ -135,3 +136,9 @@ export const getStats = wrap(async (_req: Request, res: Response) => {
 
   res.json({ userCount, runCount, activeRuns, connectedAccounts: tokenCount });
 });
+
+// GET /admin/logs — SSE stream of live server logs
+export function logsSSE(req: Request, res: Response) {
+  const remove = addLogClient(res);
+  req.on('close', remove);
+}

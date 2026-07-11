@@ -1,3 +1,4 @@
+import './lib/logStream.js'; // must be first — patches console before any other import
 import http from 'http';
 import express, { Request, Response } from 'express';
 import cors from 'cors';

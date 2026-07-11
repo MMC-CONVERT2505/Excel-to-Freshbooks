@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { getAppToken, getAppUser, clearAppToken } from '../lib/appAuth.js';
 import { useNavigate } from 'react-router-dom';
 
@@ -36,7 +36,7 @@ function fmtDate(iso: string | null) {
 export default function AdminPage() {
   const navigate  = useNavigate();
   const appUser   = getAppUser();
-  const [tab, setTab] = useState<'users' | 'activity'>('users');
+  const [tab, setTab] = useState<'users' | 'activity' | 'logs'>('users');
 
   // Users state
   const [users,    setUsers]    = useState<User[]>([]);
@@ -66,6 +66,13 @@ export default function AdminPage() {
   // Stats
   const [stats, setStats] = useState<Stats | null>(null);
 
+  // Logs
+  type LogEntry = { ts: string; level: 'info' | 'warn' | 'error'; msg: string };
+  const [logs, setLogs]           = useState<LogEntry[]>([]);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const logsEndRef                = useRef<HTMLDivElement>(null);
+  const esRef                     = useRef<EventSource | null>(null);
+
   const goToApp = () => {
     const wf = localStorage.getItem('oauth_workflow') || 'excel';
     navigate(`/${wf}/connect`);
@@ -80,6 +87,29 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab === 'activity') fetchActivity();
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'logs') {
+      esRef.current?.close();
+      esRef.current = null;
+      return;
+    }
+    const token = getAppToken();
+    const url   = `${ADMIN_API}/logs?token=${encodeURIComponent(token || '')}`;
+    const es    = new EventSource(url);
+    esRef.current = es;
+    es.onmessage = (e) => {
+      try {
+        const entry: LogEntry = JSON.parse(e.data);
+        setLogs(prev => [...prev.slice(-1999), entry]);
+      } catch {}
+    };
+    return () => { es.close(); esRef.current = null; };
+  }, [tab]);
+
+  useEffect(() => {
+    if (autoScroll) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs, autoScroll]);
 
   async function fetchStats() {
     try {
@@ -186,14 +216,14 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
-          {(['users', 'activity'] as const).map(t => (
+          {(['users', 'activity', 'logs'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
               padding: '7px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600,
               background: tab === t ? 'var(--blue)' : 'transparent',
               color: tab === t ? '#fff' : 'var(--text-2)',
               transition: 'all 0.15s',
             }}>
-              {t === 'users' ? 'Users' : 'Activity Monitor'}
+              {t === 'users' ? 'Users' : t === 'activity' ? 'Activity Monitor' : 'Live Logs'}
             </button>
           ))}
         </div>
@@ -382,6 +412,57 @@ export default function AdminPage() {
             ))}
           </div>
         )}
+        {/* ── LOGS TAB ── */}
+        {tab === 'logs' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)', flex: 1 }}>
+                {logs.length} line{logs.length !== 1 ? 's' : ''} · last 2000 kept · streaming live
+              </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-2)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} />
+                Auto-scroll
+              </label>
+              <button
+                className="btn btn--ghost"
+                style={{ fontSize: 12, height: 32, padding: '0 14px' }}
+                onClick={() => setLogs([])}
+              >
+                Clear
+              </button>
+            </div>
+
+            {/* terminal */}
+            <div style={{
+              background: '#0d1117',
+              border: '1px solid #30363d',
+              borderRadius: 10,
+              padding: '14px 16px',
+              height: 560,
+              overflowY: 'auto',
+              fontFamily: 'Menlo, Consolas, "Courier New", monospace',
+              fontSize: 12,
+              lineHeight: 1.6,
+            }}>
+              {logs.length === 0 ? (
+                <span style={{ color: '#6e7681' }}>Waiting for logs…</span>
+              ) : logs.map((l, i) => {
+                const color = l.level === 'error' ? '#f85149' : l.level === 'warn' ? '#e3b341' : '#c9d1d9';
+                const tsColor = '#6e7681';
+                const ts = new Date(l.ts).toLocaleTimeString('en-US', { hour12: false });
+                return (
+                  <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 1 }}>
+                    <span style={{ color: tsColor, flexShrink: 0, userSelect: 'none' }}>{ts}</span>
+                    <span style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l.msg}</span>
+                  </div>
+                );
+              })}
+              <div ref={logsEndRef} />
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
