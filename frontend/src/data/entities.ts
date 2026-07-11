@@ -210,6 +210,7 @@ export const TEMPLATES: Record<string, TplCol[]> = {
     { col:'line_description', req:false, ds:'Extended line description', ex:'Standard widget unit' },
     { col:'notes',            req:false, ds:'Invoice-level notes', ex:'Thank you for your business' },
     { col:'terms',            req:false, ds:'Payment terms text', ex:'Net 30' },
+    { col:'status',           req:false, ds:'Invoice status: Draft | Sent | Outstanding | Overdue (default: Sent)', ex:'Sent' },
     { col:'tax_name1',        req:false, ds:'Tax label 1', ex:'GST' },
     { col:'tax_amount1',      req:false, ds:'Tax amount 1 for this line', ex:'2.00' },
     { col:'tax_name2',        req:false, ds:'Tax label 2', ex:'PST' },

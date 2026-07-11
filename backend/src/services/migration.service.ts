@@ -719,6 +719,14 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         return lineObj;
       });
 
+      const statusMap: Record<string, number> = {
+        draft: 1, '1': 1,
+        sent: 2, '2': 2,
+        outstanding: 4, '4': 4,
+        overdue: 5, '5': 5,
+      };
+      const statusCode = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 2;
+
       const res = await callWithRetry(() => createInvoice({
         customerid,
         invoice_number: header.invoice_number,
@@ -728,7 +736,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         notes: header.notes,
         terms: header.terms,
         language: header.language || 'en',
-        status: 2,
+        status: statusCode,
         lines,
       }));
 
