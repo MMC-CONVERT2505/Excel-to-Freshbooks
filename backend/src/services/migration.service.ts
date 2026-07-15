@@ -2021,10 +2021,10 @@ export async function getMigrationStatus(tokenId?: number | null) {
   // running even when allPhases is empty (e.g. new company token, no DB phases yet,
   // or the current run hasn't written its first phase to DB yet).
   // Keys are now "tokenId:entity" — filter to this session only, then strip the prefix.
-  const tokenPrefix = scopeTokenId ? `${scopeTokenId}:` : '';
+  const tokenPrefix = tokenId ? `${tokenId}:` : '';
   for (const [key, prog] of liveProgress) {
-    if (scopeTokenId && !key.startsWith(tokenPrefix)) continue; // skip other users' progress
-    const entity = scopeTokenId ? key.slice(tokenPrefix.length) : key;
+    if (tokenId && !key.startsWith(tokenPrefix)) continue; // skip other users' progress
+    const entity = tokenId ? key.slice(tokenPrefix.length) : key;
     const runningPhase = {
       entity,
       status:      (prog.completed ? 'COMPLETED' : 'RUNNING') as 'COMPLETED' | 'RUNNING',
