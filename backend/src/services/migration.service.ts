@@ -527,6 +527,23 @@ export async function migrateVendors(tokenId: number | null = null): Promise<Mig
   );
 }
 
+// Resolve a QBD category name (may be "Parent:Child") to a FreshBooks category id.
+// Tries: exact → last segment → first segment → fallback first category.
+function resolveExpenseCategory(raw: string | undefined, catMap: Record<string, number>, fallbackId: number | undefined, label: string): number | undefined {
+  if (!raw) return fallbackId;
+  const key = raw.toLowerCase().trim();
+  if (catMap[key] !== undefined) return catMap[key];
+  const parts = key.split(':').map(p => p.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    const last = parts[parts.length - 1];
+    if (catMap[last] !== undefined) { console.log(`${label} category "${raw}" → matched on subcategory "${last}"`); return catMap[last]; }
+    const first = parts[0];
+    if (catMap[first] !== undefined) { console.log(`${label} category "${raw}" → matched on parent "${first}"`); return catMap[first]; }
+  }
+  console.warn(`${label} category "${raw}" not found in FreshBooks — using fallback`);
+  return fallbackId;
+}
+
 // ─── EXPENSES ────────────────────────────────────────────────────────────────
 
 export async function migrateExpenses(tokenId: number | null = null): Promise<MigrationResult> {
@@ -540,7 +557,7 @@ export async function migrateExpenses(tokenId: number | null = null): Promise<Mi
   }
 
   return runMigration('expenses', rows, async (row) => {
-    const categoryid = catMap[row.category_name?.toLowerCase()] ?? categories[0]?.id;
+    const categoryid = resolveExpenseCategory(row.category_name, catMap, categories[0]?.id, '[EXPENSES]');
     const base = parseFloat(row.amount) || 0;
     const tax1 = parseFloat(row.tax_amount1) || 0;
     const tax2 = parseFloat(row.tax_amount2) || 0;
@@ -1207,7 +1224,7 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
       if (!vendorid) throw new Error(`Vendor not resolved: "${header.vendor_name}"`);
 
       const lines = lineRows.map((line) => {
-        const categoryid = catMap[line.category_name?.toLowerCase()] ?? categories[0]?.id;
+        const categoryid = resolveExpenseCategory(line.category_name, catMap, categories[0]?.id, '[BILLS]');
         const qty = Number(line.quantity) || 1;
         const unitCost = parseFloat(line.amount) || 0;
         const subtotal = qty * unitCost;
