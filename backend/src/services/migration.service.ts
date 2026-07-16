@@ -115,8 +115,18 @@ function normalizeDate(d: string): string {
   return d;
 }
 
+function isConcurrencyConflict(err: any): boolean {
+  if (err?.response?.status !== 409) return false;
+  const body = JSON.stringify(err?.response?.data ?? '').toLowerCase();
+  return body.includes('same time') || body.includes('concurrent') || body.includes('conflicts with another');
+}
+
 function isAlreadyExists(err: any): boolean {
-  if (err?.response?.status === 409) return true;
+  if (err?.response?.status === 409) {
+    // Concurrency conflicts are NOT duplicates — they should be retried
+    if (isConcurrencyConflict(err)) return false;
+    return true;
+  }
   const errors = err?.response?.data?.response?.errors || [];
   return errors.some((e: any) => {
     const msg = typeof e.message === 'string' ? e.message.toLowerCase() : '';
@@ -141,7 +151,8 @@ async function callWithRetry(fn: () => Promise<any>): Promise<any> {
       if (isAlreadyExists(err)) return makeSkip(err);
       const status = err?.response?.status;
       const isNetwork = !status && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'].includes(err.code);
-      const isServerError = status >= 500 && status <= 599; // 502, 503, 504 = FreshBooks temporary errors
+      const isServerError = status >= 500 && status <= 599;
+      const isConcurrency = isConcurrencyConflict(err);
       if (status === 429 && attempt < MAX_RETRIES) {
         const retryAfter = parseInt(err?.response?.headers?.['retry-after'] || '0', 10);
         const waitMs = retryAfter > 0
@@ -149,8 +160,12 @@ async function callWithRetry(fn: () => Promise<any>): Promise<any> {
           : Math.min(1000 * Math.pow(2, attempt), 60000);
         console.log(`Rate limited — waiting ${waitMs / 1000}s before retry ${attempt}/${MAX_RETRIES}...`);
         await sleep(waitMs);
+      } else if (isConcurrency && attempt < MAX_RETRIES) {
+        const waitMs = Math.min(2000 * attempt, 10000); // 2s, 4s, 6s… FreshBooks concurrency conflict
+        console.log(`FreshBooks concurrency conflict — retrying in ${waitMs / 1000}s (attempt ${attempt}/${MAX_RETRIES})...`);
+        await sleep(waitMs);
       } else if ((isNetwork || isServerError) && attempt < MAX_RETRIES) {
-        const waitMs = Math.min(5000 * attempt, 30000); // 5s, 10s, 15s… capped at 30s
+        const waitMs = Math.min(5000 * attempt, 30000);
         console.log(`${isServerError ? `FreshBooks ${status}` : `Network error (${err.code})`} — retrying in ${waitMs / 1000}s (attempt ${attempt}/${MAX_RETRIES})...`);
         await sleep(waitMs);
       } else {
