@@ -429,9 +429,16 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
 export async function migrateItems(tokenId: number | null = null): Promise<MigrationResult> {
   const rows = await readUploadedRows('items', tokenId);
 
+  // Fetch both endpoints: COA has JE-history accounts, ledger has ALL accounts.
+  // Merge so income_account_number lookup works for income accounts too.
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
   const { numberMap, subTypeByUuid } = buildMaps(accounts);
+
+  const ledgerRes = await getLedgerAccounts();
+  const { numberMap: ledgerMap } = buildMaps(ledgerRes?.accounts || []);
+  Object.assign(numberMap, ledgerMap);
+
   console.log(`[ITEMS] COA accounts loaded: ${accounts.length}, numberMap keys: ${Object.keys(numberMap).length}`);
 
   const existingItemsRes = await getItems();
@@ -454,14 +461,11 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
     let income_account_id: string | undefined;
 
     if (row.income_account_number) {
-      const uuid = numberMap[row.income_account_number]
+      // Trust the column value — no sub_type filter. FreshBooks validates on its end.
+      income_account_id = numberMap[row.income_account_number]
         ?? numberMap[`name::${row.income_account_number.toLowerCase()}`];
-      const subType = uuid ? subTypeByUuid[uuid] : 'NOT_FOUND';
-      if (uuid && subType === 'Income') {
-        income_account_id = uuid;
-      }
       if (!income_account_id) {
-        console.log(`[ITEMS ACCT] "${row.income_account_number}" → uuid=${uuid ?? 'NOT_FOUND'} subType=${subType} → using Sales default`);
+        console.warn(`[ITEMS ACCT] "${row.income_account_number}" not found in FreshBooks COA or ledger — falling back to Sales default`);
       }
     }
 
@@ -1317,11 +1321,31 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
   const billsRes = await getBills();
   const bills: any[] = billsRes?.response?.result?.bills || [];
 
+  console.log(`[BILL-PAY] Fetched ${bills.length} bills from FreshBooks`);
+  if (bills.length > 0) {
+    const sample = bills.slice(0, 5).map((b: any) =>
+      `ID:${b.id} num:"${b.bill_number || ''}" vendor:"${b.vendor?.vendor_name || ''}" amt:${b.amount?.amount || b.outstanding?.amount || '?'} date:${b.issue_date || '?'}`
+    ).join(' | ');
+    console.log(`[BILL-PAY] Sample bills: ${sample}`);
+  }
+
   const billByNumber: Record<string, number> = {};
   const billByVendorDate: Record<string, number> = {};
   const billsByVendor: Record<string, any[]> = {};
+  // Index bills by amount for global fallback (vendor-agnostic)
+  const billsByAmount: Record<string, any[]> = {};
+  const billsByDateAndAmount: Record<string, number> = {};
+  // Strip a leading letter-dash prefix (e.g. "B-", "INV-", "PO-") for fuzzy matching
+  const stripPrefix = (s: string) => s.replace(/^[a-z]+-/i, '').toLowerCase();
+
   for (const b of bills) {
-    if (b.bill_number) billByNumber[b.bill_number.toLowerCase()] = b.id;
+    if (b.bill_number) {
+      const fullKey = b.bill_number.toLowerCase();
+      billByNumber[fullKey] = b.id;
+      // Also index by the bare key without prefix so payment-side can match either way
+      const bareKey = stripPrefix(b.bill_number);
+      if (bareKey !== fullKey) billByNumber[bareKey] = b.id;
+    }
     const vName = (b.vendor?.vendor_name || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
     const dateKey = `${vName}|${b.issue_date}`;
     billByVendorDate[dateKey] = b.id;
@@ -1329,6 +1353,11 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
       if (!billsByVendor[vName]) billsByVendor[vName] = [];
       billsByVendor[vName].push(b);
     }
+    // Build global amount index
+    const amtKey = parseFloat(b.amount?.amount || b.outstanding?.amount || '0').toFixed(2);
+    if (!billsByAmount[amtKey]) billsByAmount[amtKey] = [];
+    billsByAmount[amtKey].push(b);
+    if (b.issue_date) billsByDateAndAmount[`${b.issue_date}|${amtKey}`] = b.id;
   }
 
   // Load COA for offsetting journal entries (Petty Cash nullification)
@@ -1346,9 +1375,11 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
   return runMigration('bill_payments', rows, async (row) => {
     let billid: number | undefined;
 
-    // 1. Match by explicit bill_number
+    // 1. Match by bill_number — try exact, then bare (strip prefix), then with "B-" prefix
     if (row.bill_number) {
-      billid = billByNumber[row.bill_number.toLowerCase()];
+      const numKey  = row.bill_number.toLowerCase();
+      const numBare = stripPrefix(row.bill_number);
+      billid = billByNumber[numKey] ?? billByNumber[numBare] ?? billByNumber[`b-${numBare}`];
     }
 
     // 2. Match by vendor_name + issue_date
@@ -1368,7 +1399,31 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
       if (matched) billid = matched.id;
     }
 
-    if (!billid) throw new Error(`Bill not found for vendor "${row.vendor_name}" — no matching bill for $${row.amount}`);
+    // 4. Global fallback: match by issue_date + amount across ALL bills (ignores vendor mismatch)
+    if (!billid && row.paid_date) {
+      const amtKey = parseFloat(row.amount).toFixed(2);
+      const dateNorm = normalizeDate(row.paid_date);
+      billid = billsByDateAndAmount[`${dateNorm}|${amtKey}`];
+      if (billid) console.log(`[BILL-PAY] Matched by date+amount: $${row.amount} on ${dateNorm} → bill ID ${billid}`);
+    }
+
+    // 5. Global fallback: match by amount alone across ALL bills (warns if ambiguous)
+    if (!billid) {
+      const amtKey = parseFloat(row.amount).toFixed(2);
+      const candidates = billsByAmount[amtKey] || [];
+      if (candidates.length === 1) {
+        billid = candidates[0].id;
+        console.log(`[BILL-PAY] Matched by amount alone: $${row.amount} → bill ID ${billid} (vendor: ${candidates[0].vendor?.vendor_name || 'unknown'})`);
+      } else if (candidates.length > 1) {
+        // Pick earliest unpaid bill with that amount
+        const unpaid = candidates.filter(b => parseFloat(b.outstanding?.amount || '0') > 0);
+        const pick = unpaid[0] || candidates[0];
+        billid = pick.id;
+        console.warn(`[BILL-PAY] Ambiguous amount match: $${row.amount} matches ${candidates.length} bills — using bill ID ${billid} (${pick.vendor?.vendor_name || 'unknown'})`);
+      }
+    }
+
+    if (!billid) throw new Error(`Bill not found for vendor "${row.vendor_name}" — no bill in FreshBooks matches $${row.amount} (total FreshBooks bills: ${bills.length})`);
 
     const billTypeMap: Record<string, string> = {
       'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
