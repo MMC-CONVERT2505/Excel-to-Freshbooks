@@ -810,6 +810,13 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
 export async function migrateSalesReceipts(tokenId: number | null = null): Promise<MigrationResult> {
   const rows = await readUploadedRows('sales-receipts', tokenId);
 
+  // Normalize column aliases so invoice-format exports work without renaming
+  for (const row of rows) {
+    if (!row.receipt_number && row.invoice_number) row.receipt_number = row.invoice_number;
+    if (!row.date && row.create_date)             row.date = row.create_date;
+    if (!row.payment_type)                         row.payment_type = 'other';
+  }
+
   // Load parsed client data for auto-creation (same as migrateInvoices)
   let clientCsvRows: Row[] = [];
   try { clientCsvRows = await readUploadedRows('clients', tokenId); } catch { clientCsvRows = []; }

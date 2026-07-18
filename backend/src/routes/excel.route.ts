@@ -78,7 +78,9 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   'sales-receipts': {
     id: 'sales-receipts',
     name: 'Sales Receipts',
-    required: ['receipt_number', 'customer_name', 'date', 'line_qty', 'line_unit_cost', 'payment_type', 'currency_code'],
+    // receipt_number/invoice_number and date/create_date are accepted interchangeably
+    // payment_type is optional — defaults to 'other' in migration
+    required: [['receipt_number', 'invoice_number'], 'customer_name', ['date', 'create_date'], 'line_qty', 'line_unit_cost', 'currency_code'],
   },
   bills: {
     id: 'bills',
@@ -88,7 +90,7 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   'credit-notes': {
     id: 'credit-notes',
     name: 'Credit Notes',
-    required: ['credit_note_number', 'customer_name', 'date', 'amt', 'customer_email', 'currency_code', 'credit_type'],
+    required: ['credit_note_number', 'customer_name', 'date', 'amt', 'currency_code'],
   },
   'invoice-payments': {
     id: 'invoice-payments',
