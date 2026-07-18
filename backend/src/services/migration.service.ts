@@ -865,15 +865,6 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
   liveProgress.set(sessionKey('sales-receipts'), { done: 0, total: receiptGroups.length, startedAt: Date.now() });
   console.log(`\n[SALES-RCPT] Starting migration — ${receiptGroups.length} receipts to push`);
 
-  const typeMap: Record<string, string> = {
-    'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
-    'credit card': 'Credit', 'credit': 'Credit',
-    'visa': 'Visa', 'mastercard': 'Mastercard', 'master card': 'Mastercard',
-    'amex': 'Amex', 'american express': 'Amex',
-    'paypal': 'PayPal', 'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
-    'wire': 'Check', 'wire transfer': 'Check', 'bank transfer': 'Check',
-  };
-
   for (const [receiptNum, lineRows] of receiptGroups) {
     const i = result.success + result.failed;
     const label = `[SALES-RCPT] (${i + 1}/${receiptGroups.length}) #${receiptNum}`;
@@ -961,27 +952,8 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
         lines,
       }));
 
-      const invoiceId = invoiceRes?.response?.result?.invoice?.id;
-      if (!invoiceId) throw new Error(`Invoice created but no ID returned for receipt #${receiptNum}`);
-
-      // Total = sum of all line amounts (qty × unit_cost)
-      const totalAmount = lineRows.reduce((sum, line) => {
-        return sum + ((Number(line.line_qty) || 1) * (parseFloat(line.line_unit_cost) || 0));
-      }, 0);
-
-      // Apply immediate payment — marks the invoice as paid (receipt behaviour)
-      const rawType  = (header.payment_type || '').toLowerCase().trim();
-      const safeType = typeMap[rawType] || 'Check';
-      await createPayment({
-        invoiceid: invoiceId,
-        amount: { amount: totalAmount.toFixed(2), code: header.currency_code || 'USD' },
-        date: normalizeDate(header.date),
-        type: safeType,
-        note: header.notes || `Sales receipt ${receiptNum}`,
-      });
-
       result.success++;
-      console.log(`${label} → ✓ pushed (invoice+payment)`);
+      console.log(`${label} → ✓ pushed`);
     } catch (err: any) {
       result.failed++;
       const detail = err?.response?.data;
