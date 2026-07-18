@@ -990,7 +990,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
-    liveProgress.get('sales-receipts')!.done = result.success + result.failed + result.skipped;
+    liveProgress.get(sessionKey('sales-receipts'))!.done = result.success + result.failed + result.skipped;
     await sleep(DELAY_MS);
   }
 
