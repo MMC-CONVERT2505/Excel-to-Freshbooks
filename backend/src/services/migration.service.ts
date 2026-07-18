@@ -1141,7 +1141,18 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
         credit_number: header.credit_note_number,
         currency_code: header.currency_code || 'USD',
         create_date: header.date,
-        credit_type: header.credit_type || 'goodwill',
+        credit_type: (() => {
+          const raw = (header.credit_type || 'goodwill').toLowerCase().trim();
+          const map: Record<string, string> = {
+            'overpayment': 'overpayment',
+            'over payment': 'overpayment',
+            'credit_note': 'credit_note',
+            'credit note': 'credit_note',
+            'credit': 'credit_note',
+            'goodwill': 'goodwill',
+          };
+          return map[raw] ?? 'goodwill';
+        })(),
         notes: header.notes,
         terms: header.terms,
         lines,
