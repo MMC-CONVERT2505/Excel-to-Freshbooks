@@ -105,12 +105,19 @@ function markLiveProgressCompleted(key: string) {
 
 function normalizeDate(d: string): string {
   if (!d) return d;
+  // YYYY-MM-DD (already correct)
   if (/^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0, 10);
+  // M/D/YYYY or D/M/YYYY (slashes)
   if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(d)) {
     const [a, b, yyyy] = d.split('/');
     const first = parseInt(a, 10);
     if (first > 12) return `${yyyy}-${b.padStart(2, '0')}-${a.padStart(2, '0')}`;
     return `${yyyy}-${a.padStart(2, '0')}-${b.padStart(2, '0')}`;
+  }
+  // DD-MM-YYYY (dashes, day first — e.g. 18-02-2026)
+  if (/^\d{1,2}-\d{1,2}-\d{4}/.test(d)) {
+    const [dd, mm, yyyy] = d.split('-');
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
   }
   return d;
 }
@@ -1565,6 +1572,7 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
       'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
       'wire': 'Check', 'wire transfer': 'Check',
       'bank transfer': 'Check', 'electronic check': 'Check', 'echeck': 'Check',
+      'other': 'Check',
     };
     const rawType   = (row.payment_type || '').toLowerCase().trim();
     const safeType  = typeMap[rawType] || 'Check';

@@ -95,12 +95,12 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   'invoice-payments': {
     id: 'invoice-payments',
     name: 'Invoice Payments',
-    required: ['invoice_number', 'amount', 'date', 'payment_type', 'currency_code', 'bank_account_number'],
+    required: ['invoice_number', 'amount', 'date', 'currency_code'],
   },
   'bill-payments': {
     id: 'bill-payments',
     name: 'Bill Payments',
-    required: ['bill_number', 'amount', 'paid_date', 'payment_type', 'currency_code', 'bank_account_number'],
+    required: ['bill_number', 'amount', 'paid_date', 'currency_code'],
   },
 };
 
