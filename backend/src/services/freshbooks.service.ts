@@ -1004,11 +1004,14 @@ async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ u
     }
 
     try {
+      console.log(`[EXPENSE-UPDATE] ID=${rawId} body=${JSON.stringify(body)}`);
       await updateExpense(Number(rawId), body);
       updated++;
     } catch (err: any) {
       failed++;
       const detail = err?.response?.data;
+      const status = err?.response?.status;
+      console.error(`[EXPENSE-UPDATE] ID=${rawId} status=${status} response=${JSON.stringify(detail)}`);
       errors.push(`Row ${i + 1} (ID ${rawId}): ${detail ? JSON.stringify(detail) : err.message}`);
     }
   }
