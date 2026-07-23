@@ -955,6 +955,67 @@ export async function deleteJournalEntry(entryId: string) {
   return res.data;
 }
 
+// ── EXPENSE BULK UPDATE ───────────────────────────────────────────────────────────
+// The export sheet is flattened (amount_amount, amount_code, vendor_name, etc.)
+// We reconstruct only the fields FreshBooks accepts in a PUT and skip read-only ones.
+async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
+  let updated = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawId = row['id'] ?? row['freshbooks_id'] ?? row['ID'];
+    if (rawId == null) { failed++; errors.push(`Row ${i + 1}: missing "id" column`); continue; }
+
+    // Rebuild only the fields FreshBooks allows in a PUT
+    const body: Record<string, any> = {};
+
+    // Amount — exported as amount_amount + amount_code
+    const amtVal  = row['amount_amount'] ?? row['amount'];
+    const amtCode = row['amount_code']   ?? row['currency_code'] ?? 'USD';
+    if (amtVal !== '' && amtVal != null) body.amount = { amount: String(amtVal), code: amtCode };
+
+    // Simple scalar fields
+    const scalar: Record<string, string> = {
+      categoryid:    'categoryid',
+      date:          'date',
+      notes:         'notes',
+      staffid:       'staffid',
+      clientid:      'clientid',
+      projectid:     'projectid',
+      invoiceid:     'invoiceid',
+      markup_percent:'markup_percent',
+      taxName1:      'taxName1',
+      taxAmount1:    'taxAmount1',
+      taxName2:      'taxName2',
+      taxAmount2:    'taxAmount2',
+      currency_code: 'currency_code',
+      is_cogs:       'is_cogs',
+      account_name:  'account_name',
+    };
+    for (const [col, field] of Object.entries(scalar)) {
+      if (row[col] !== '' && row[col] != null) body[field] = row[col];
+    }
+
+    // Vendor — exported as vendor_name (string) or vendor (object with id/name)
+    const vendorName = row['vendor_name'] ?? row['vendor'];
+    if (vendorName !== '' && vendorName != null && typeof vendorName === 'string') {
+      body.vendor = vendorName;
+    }
+
+    try {
+      await updateExpense(Number(rawId), body);
+      updated++;
+    } catch (err: any) {
+      failed++;
+      const detail = err?.response?.data;
+      errors.push(`Row ${i + 1} (ID ${rawId}): ${detail ? JSON.stringify(detail) : err.message}`);
+    }
+  }
+
+  return { updated, failed, errors };
+}
+
 // ── INVOICE BULK UPDATE (groups rows by freshbooks_id, builds lines array) ───────
 // The export sheet has one row per line item. To update, rows are grouped by
 // freshbooks_id, invoice-level fields are taken from the first row in each group,
@@ -1250,7 +1311,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'clients':           { getAll: getClients,        extractRecords: d => d.response?.result?.clients || [],         deleteOne: deleteClient,        updateOne: updateClient },
   'vendors':           { getAll: getVendors,         extractRecords: d => d.response?.result?.bill_vendors || [],    deleteOne: deleteVendor,        updateOne: updateVendor },
   'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem },
-  'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense },
+  'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense,  exportFn: exportExpensesExcel, bulkUpdateFn: bulkUpdateExpenses },
   'income':            { getAll: getIncome,          extractRecords: d => d.response?.result?.other_incomes || [],   deleteOne: deleteIncome,        updateOne: updateIncome },
   'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel, bulkUpdateFn: bulkUpdateInvoices },
   'bills':             { getAll: getBills,           extractRecords: d => d.response?.result?.bills || [],           deleteOne: deleteBill,          updateOne: updateBill },
