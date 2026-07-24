@@ -1017,10 +1017,20 @@ async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ u
       updated++;
     } catch (err: any) {
       failed++;
-      const detail = err?.response?.data;
       const status = err?.response?.status;
-      console.error(`[EXPENSE-UPDATE] ID=${rawId} status=${status} response=${JSON.stringify(detail)} body=${JSON.stringify(body)}`);
-      errors.push(`Row ${i + 1} (ID ${rawId}): ${detail ? JSON.stringify(detail) : err.message}`);
+      const detail = err?.response?.data;
+      // Extract FreshBooks-specific error message from nested structure
+      const fbErrors = detail?.response?.errors ?? detail?.errors;
+      const fbMsg = Array.isArray(fbErrors)
+        ? fbErrors.map((e: any) => e.message ?? e.errno ?? JSON.stringify(e)).join('; ')
+        : null;
+      const errMsg = fbMsg
+        ? `HTTP ${status} — ${fbMsg}`
+        : detail
+          ? `HTTP ${status} — ${JSON.stringify(detail)}`
+          : `HTTP ${status} — ${err.message}`;
+      console.error(`[EXPENSE-UPDATE] ID=${rawId} status=${status} body=${JSON.stringify(body)} fb_response=${JSON.stringify(detail)}`);
+      errors.push(`Row ${i + 1} (ID ${rawId}): ${errMsg}`);
     }
   }
 
