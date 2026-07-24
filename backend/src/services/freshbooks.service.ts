@@ -958,6 +958,22 @@ export async function deleteJournalEntry(entryId: string) {
 // ── EXPENSE BULK UPDATE ───────────────────────────────────────────────────────────
 // The export sheet is flattened (amount_amount, amount_code, vendor_name, etc.)
 // We reconstruct only the fields FreshBooks accepts in a PUT and skip read-only ones.
+// Convert Excel date serial (e.g. 44201) or string to YYYY-MM-DD
+function toDateString(val: any): string | undefined {
+  if (!val && val !== 0) return undefined;
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
+  if (typeof val === 'string' && /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(val)) return val; // normalizeDate handles it
+  if (typeof val === 'number' && val > 40000 && val < 60000) {
+    // Excel serial: days since 1900-01-01 (with leap year bug offset)
+    const d = new Date((val - 25569) * 86400 * 1000);
+    const yyyy = d.getUTCFullYear();
+    const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd   = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return undefined;
+}
+
 async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
   let updated = 0, failed = 0;
   const errors: string[] = [];
@@ -967,7 +983,6 @@ async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ u
     const rawId = row['id'] ?? row['freshbooks_id'] ?? row['ID'];
     if (rawId == null) { failed++; errors.push(`Row ${i + 1}: missing "id" column`); continue; }
 
-    // Rebuild only the fields FreshBooks allows in a PUT
     const body: Record<string, any> = {};
 
     // Amount — exported as amount_amount + amount_code
@@ -975,43 +990,36 @@ async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ u
     const amtCode = row['amount_code']   ?? row['currency_code'] ?? 'USD';
     if (amtVal !== '' && amtVal != null) body.amount = { amount: String(amtVal), code: amtCode };
 
-    // Simple scalar fields
-    const scalar: Record<string, string> = {
-      categoryid:    'categoryid',
-      date:          'date',
-      notes:         'notes',
-      staffid:       'staffid',
-      clientid:      'clientid',
-      projectid:     'projectid',
-      invoiceid:     'invoiceid',
-      markup_percent:'markup_percent',
-      taxName1:      'taxName1',
-      taxAmount1:    'taxAmount1',
-      taxName2:      'taxName2',
-      taxAmount2:    'taxAmount2',
-      currency_code: 'currency_code',
-      is_cogs:       'is_cogs',
-      account_name:  'account_name',
-    };
-    for (const [col, field] of Object.entries(scalar)) {
-      if (row[col] !== '' && row[col] != null) body[field] = row[col];
-    }
+    // Date — may be an Excel serial number
+    const dateVal = toDateString(row['date']);
+    if (dateVal) body.date = dateVal;
 
-    // Vendor — exported as vendor_name (string) or vendor (object with id/name)
-    const vendorName = row['vendor_name'] ?? row['vendor'];
-    if (vendorName !== '' && vendorName != null && typeof vendorName === 'string') {
-      body.vendor = vendorName;
-    }
+    // Scalar fields — skip zero/empty FK values to avoid permission errors
+    if (row['categoryid'] && Number(row['categoryid']) > 0)    body.categoryid    = row['categoryid'];
+    if (row['notes']      && String(row['notes']).trim())       body.notes         = row['notes'];
+    if (row['clientid']   && Number(row['clientid'])  > 0)     body.clientid      = row['clientid'];
+    if (row['projectid']  && Number(row['projectid']) > 0)     body.projectid     = row['projectid'];
+    if (row['invoiceid']  && Number(row['invoiceid']) > 0)     body.invoiceid     = row['invoiceid'];
+    if (row['markup_percent'] !== '' && row['markup_percent'] != null) body.markup_percent = row['markup_percent'];
+    if (row['taxName1'])   body.taxName1   = row['taxName1'];
+    if (row['taxAmount1']) body.taxAmount1 = row['taxAmount1'];
+    if (row['taxName2'])   body.taxName2   = row['taxName2'];
+    if (row['taxAmount2']) body.taxAmount2 = row['taxAmount2'];
+    if (row['is_cogs'] != null && row['is_cogs'] !== '') body.is_cogs = row['is_cogs'];
+    // staffid intentionally excluded — causes 403 if token doesn't match that staff member
+
+    // Vendor — string field in FreshBooks
+    const vendorVal = row['vendor_name'] ?? row['vendor'];
+    if (vendorVal && typeof vendorVal === 'string' && vendorVal.trim()) body.vendor = vendorVal.trim();
 
     try {
-      console.log(`[EXPENSE-UPDATE] ID=${rawId} body=${JSON.stringify(body)}`);
       await updateExpense(Number(rawId), body);
       updated++;
     } catch (err: any) {
       failed++;
       const detail = err?.response?.data;
       const status = err?.response?.status;
-      console.error(`[EXPENSE-UPDATE] ID=${rawId} status=${status} response=${JSON.stringify(detail)}`);
+      console.error(`[EXPENSE-UPDATE] ID=${rawId} status=${status} response=${JSON.stringify(detail)} body=${JSON.stringify(body)}`);
       errors.push(`Row ${i + 1} (ID ${rawId}): ${detail ? JSON.stringify(detail) : err.message}`);
     }
   }
