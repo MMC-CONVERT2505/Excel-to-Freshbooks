@@ -985,9 +985,9 @@ async function bulkUpdateExpenses(rows: Array<Record<string, any>>): Promise<{ u
 
     const body: Record<string, any> = {};
 
-    // Amount — exported as amount_amount + amount_code
+    // Amount — supports full export (amount_amount/amount_code) and simple sheet (amount/currency)
     const amtVal  = row['amount_amount'] ?? row['amount'];
-    const amtCode = row['amount_code']   ?? row['currency_code'] ?? 'USD';
+    const amtCode = row['amount_code']   ?? row['currency_code'] ?? row['currency'] ?? 'USD';
     if (amtVal !== '' && amtVal != null) body.amount = { amount: String(amtVal), code: amtCode };
 
     // Date — may be an Excel serial number
