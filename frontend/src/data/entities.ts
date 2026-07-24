@@ -271,6 +271,44 @@ export const TEMPLATES: Record<string, TplCol[]> = {
   ],
 };
 
+// ── Update templates (id + editable fields, for the Update panel download) ──
+export const UPDATE_TEMPLATES: Record<string, TplCol[]> = {
+  'expenses': [
+    { col:'id',          req:true,  ds:'FreshBooks expense ID (do not edit)', ex:'2632555' },
+    { col:'date',        req:false, ds:'Expense date YYYY-MM-DD', ex:'2026-05-01' },
+    { col:'vendor',      req:false, ds:'Vendor name', ex:'Office Depot' },
+    { col:'amount',      req:false, ds:'Expense amount', ex:'45.00' },
+    { col:'currency',    req:false, ds:'3-letter ISO code (defaults to USD)', ex:'USD' },
+    { col:'categoryid',  req:false, ds:'FreshBooks expense category ID', ex:'13710751' },
+    { col:'notes',       req:false, ds:'Expense note', ex:'Client meeting travel' },
+    { col:'clientid',    req:false, ds:'FreshBooks client ID (0 = none)', ex:'0' },
+    { col:'projectid',   req:false, ds:'FreshBooks project ID (0 = none)', ex:'0' },
+    { col:'markup_percent', req:false, ds:'Markup percentage', ex:'10' },
+  ],
+  'invoices': [
+    { col:'freshbooks_id',   req:true,  ds:'FreshBooks invoice ID (do not edit) — repeat on every line of the same invoice', ex:'12345' },
+    { col:'notes',           req:false, ds:'Invoice-level notes', ex:'Thank you for your business' },
+    { col:'terms',           req:false, ds:'Payment terms text', ex:'Net 30' },
+    { col:'due_offset_days', req:false, ds:'Days until due from invoice date', ex:'30' },
+    { col:'currency_code',   req:false, ds:'3-letter ISO code', ex:'USD' },
+    { col:'po_number',       req:false, ds:'Purchase order number', ex:'PO-999' },
+    { col:'line_name',       req:false, ds:'Line item name', ex:'Widget A' },
+    { col:'line_qty',        req:false, ds:'Line quantity', ex:'2' },
+    { col:'line_unit_cost',  req:false, ds:'Price per unit', ex:'19.99' },
+    { col:'line_description',req:false, ds:'Extended line description', ex:'Standard widget unit' },
+    { col:'tax_name1',       req:false, ds:'Tax label 1', ex:'GST' },
+    { col:'tax_amount1',     req:false, ds:'Tax amount 1', ex:'2.00' },
+    { col:'tax_name2',       req:false, ds:'Tax label 2', ex:'PST' },
+    { col:'tax_amount2',     req:false, ds:'Tax amount 2', ex:'1.60' },
+  ],
+  'services': [
+    { col:'id',                   req:true,  ds:'FreshBooks service ID (do not edit)', ex:'9876' },
+    { col:'name',                 req:true,  ds:'Service name — must match exactly to update income account', ex:'Consulting' },
+    { col:'income_account_number',req:false, ds:'COA account number for income mapping', ex:'4000' },
+    { col:'rate',                 req:false, ds:'Hourly / flat rate', ex:'120.00' },
+  ],
+};
+
 export function issuesFor(id: string): Issue[] { return ISSUES[id] || []; }
 export function countIssues(id: string) {
   const list = issuesFor(id);
@@ -279,4 +317,7 @@ export function countIssues(id: string) {
 export function templateFor(id: string): TplCol[] {
   const alias: Record<string, string> = { 'coa': 'chart-of-accounts', 'all-data': 'items' };
   return TEMPLATES[alias[id] || id] || [{ col: 'name', req: true, ds: 'Record name', ex: 'Example' }];
+}
+export function updateTemplateFor(id: string): TplCol[] | null {
+  return UPDATE_TEMPLATES[id] ?? null;
 }
