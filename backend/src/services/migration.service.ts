@@ -1623,17 +1623,26 @@ function buildMaps(accounts: any[]): {
 
   function traverse(items: any[]) {
     for (const item of items) {
-      if (item.account_number && item.account_uuid) {
-        numberMap[item.account_number] = item.account_uuid;
+      // FreshBooks uses different field names across endpoints:
+      //   COA report:    account_number, account_uuid
+      //   Ledger GET:    account_number (or number), account_uuid (or id as string)
+      const acctNum = item.account_number || item.number;
+      const acctUuid = item.account_uuid || item.uuid
+        || (item.id && typeof item.id === 'string' ? item.id : undefined);
+
+      if (acctNum && acctUuid) {
+        numberMap[String(acctNum)] = acctUuid;
       }
       const itemName = item.account_name || item.name;
-      if (itemName && item.account_uuid) {
-        numberMap[`name::${itemName.toLowerCase()}`] = item.account_uuid;
+      if (itemName && acctUuid) {
+        numberMap[`name::${itemName.toLowerCase()}`] = acctUuid;
       }
-      if (item.account_uuid && item.account_sub_type) {
-        subTypeByUuid[item.account_uuid] = item.account_sub_type;
+      const subType = item.account_sub_type || item.sub_account_type;
+      if (acctUuid && subType) {
+        subTypeByUuid[acctUuid] = subType;
       }
       if (item.sub_accounts?.length) traverse(item.sub_accounts);
+      if (item.children?.length) traverse(item.children);
     }
   }
   traverse(accounts);

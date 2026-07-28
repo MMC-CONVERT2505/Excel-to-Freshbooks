@@ -1247,6 +1247,59 @@ async function exportServicesExcel(): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// ── ITEMS EXPORT (shows income_account_number resolved from UUID) ─────────────────
+async function exportItemsExcel(): Promise<Buffer> {
+  const [itemsRes, coaRes, ledgerRes] = await Promise.all([
+    getItems(),
+    getChartOfAccounts(),
+    getLedgerAccounts(),
+  ]);
+
+  const items: any[] = itemsRes?.response?.result?.items || [];
+
+  // Build UUID → account_number reverse map from both endpoints
+  const uuidToNumber: Record<string, string> = {};
+  function indexAccounts(accts: any[]) {
+    for (const a of accts) {
+      const uuid = a.account_uuid || a.uuid;
+      const num  = a.account_number || a.number;
+      if (uuid && num) uuidToNumber[uuid] = String(num);
+      if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+      if (a.children?.length) indexAccounts(a.children);
+    }
+  }
+  indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
+  indexAccounts(ledgerRes?.accounts || []);
+
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  if (items.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['id', '(no records found)']]), 'items');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows = items.map((it: any) => ({
+    id:                    it.id ?? '',
+    name:                  it.name ?? '',
+    unit_cost:             it.unit_cost?.amount ?? '',
+    currency_code:         it.unit_cost?.code ?? 'USD',
+    description:           it.description ?? '',
+    sku:                   it.sku ?? '',
+    income_account_number: it.income_account_id
+      ? (uuidToNumber[it.income_account_id] ?? it.income_account_id)
+      : '',
+  }));
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'items');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 // ── INVOICE FULL EXPORT (with line items, matches upload template format) ────────
 // Fetches all invoices with include[]=lines so each line item becomes a separate row.
 async function exportInvoicesExcel(): Promise<Buffer> {
@@ -1331,7 +1384,7 @@ interface EntityCfg {
 const ENTITY_CFG: Record<string, EntityCfg> = {
   'clients':           { getAll: getClients,        extractRecords: d => d.response?.result?.clients || [],         deleteOne: deleteClient,        updateOne: updateClient },
   'vendors':           { getAll: getVendors,         extractRecords: d => d.response?.result?.bill_vendors || [],    deleteOne: deleteVendor,        updateOne: updateVendor },
-  'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem },
+  'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem,  exportFn: exportItemsExcel },
   'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense,  exportFn: exportExpensesExcel, bulkUpdateFn: bulkUpdateExpenses },
   'income':            { getAll: getIncome,          extractRecords: d => d.response?.result?.other_incomes || [],   deleteOne: deleteIncome,        updateOne: updateIncome },
   'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel, bulkUpdateFn: bulkUpdateInvoices },
