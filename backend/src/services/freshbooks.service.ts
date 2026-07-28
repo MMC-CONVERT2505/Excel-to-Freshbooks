@@ -1118,8 +1118,14 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
   const numMap: Record<string, string> = {};
   function indexAccounts(items: any[]) {
     for (const a of items) {
-      if (a.account_number && a.account_uuid) numMap[a.account_number] = a.account_uuid;
+      const num  = a.account_number || a.number;
+      const uuid = a.account_uuid   || a.uuid;
+      if (num && uuid) numMap[String(num)] = uuid;
+      // Also index by name so users can supply name instead of number
+      const name = a.account_name || a.name;
+      if (name && uuid) numMap[`name::${name.toLowerCase()}`] = uuid;
       if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+      if (a.children?.length) indexAccounts(a.children);
     }
   }
   indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
@@ -1159,7 +1165,8 @@ async function bulkUpdateServices(rows: Array<Record<string, any>>): Promise<{ u
       const rateVal = row['rate'] !== undefined && row['rate'] !== '' ? String(row['rate']) : undefined;
 
       if (acctNum) {
-        const uuid = numMap[acctNum];
+        // Try by number, then by name
+        const uuid = numMap[acctNum] ?? numMap[`name::${acctNum.toLowerCase()}`];
         if (!uuid) {
           failed++;
           errors.push(`Row ${i + 2} (ID ${serviceId}): account "${acctNum}" not found in FreshBooks chart of accounts`);

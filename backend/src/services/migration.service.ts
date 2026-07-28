@@ -440,11 +440,12 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
   // Merge so income_account_number lookup works for income accounts too.
   const coaRes = await getChartOfAccounts();
   const accounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
-  const { numberMap, subTypeByUuid } = buildMaps(accounts);
+  const { numberMap, subTypeByUuid, typeByUuid } = buildMaps(accounts);
 
   const ledgerRes = await getLedgerAccounts();
-  const { numberMap: ledgerMap } = buildMaps(ledgerRes?.accounts || []);
+  const { numberMap: ledgerMap, typeByUuid: ledgerTypeMap } = buildMaps(ledgerRes?.accounts || []);
   Object.assign(numberMap, ledgerMap);
+  Object.assign(typeByUuid, ledgerTypeMap);
 
   console.log(`[ITEMS] COA accounts loaded: ${accounts.length}, numberMap keys: ${Object.keys(numberMap).length}`);
 
@@ -471,18 +472,9 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
   console.log('[ITEMS] Total numberMap entries:', Object.keys(numberMap).length);
 
   return runMigration('items', rows, async (row) => {
-    let income_account_id: string | undefined;
-
-    if (row.income_account_number) {
-      // Trust the column value — no sub_type filter. FreshBooks validates on its end.
-      income_account_id = numberMap[row.income_account_number]
-        ?? numberMap[`name::${row.income_account_number.toLowerCase()}`];
-      if (!income_account_id) {
-        console.warn(`[ITEMS ACCT] "${row.income_account_number}" not found in FreshBooks COA or ledger — falling back to Sales default`);
-      } else {
-        console.log(`[ITEMS ACCT] "${row.income_account_number}" → income_account_id=${income_account_id}`);
-      }
-    }
+    const income_account_id = row.income_account_number
+      ? resolveIncomeAccount(row.income_account_number, numberMap, typeByUuid, 'ITEMS')
+      : undefined;
 
     const payload: Record<string, any> = {
       name: row.name,
@@ -1617,36 +1609,72 @@ const DEFAULT_PARENT: Record<string, string> = {
 function buildMaps(accounts: any[]): {
   numberMap:     Record<string, string>;
   subTypeByUuid: Record<string, string>;
+  typeByUuid:    Record<string, string>;
 } {
   const numberMap:     Record<string, string> = {};
   const subTypeByUuid: Record<string, string> = {};
+  const typeByUuid:    Record<string, string> = {};
 
   function traverse(items: any[]) {
     for (const item of items) {
       // FreshBooks uses different field names across endpoints:
-      //   COA report:    account_number, account_uuid
-      //   Ledger GET:    account_number (or number), account_uuid (or id as string)
-      const acctNum = item.account_number || item.number;
-      const acctUuid = item.account_uuid || item.uuid
+      //   COA report:    account_number, account_uuid, account_type
+      //   Ledger GET:    number (or account_number), account_uuid (or uuid), account_type
+      const acctNum  = item.account_number || item.number;
+      const acctUuid = item.account_uuid   || item.uuid
         || (item.id && typeof item.id === 'string' ? item.id : undefined);
+      const acctType = item.account_type;
 
-      if (acctNum && acctUuid) {
-        numberMap[String(acctNum)] = acctUuid;
-      }
+      if (acctNum && acctUuid) numberMap[String(acctNum)] = acctUuid;
+
+      // Also index by name so users can supply the account name instead of number
       const itemName = item.account_name || item.name;
-      if (itemName && acctUuid) {
-        numberMap[`name::${itemName.toLowerCase()}`] = acctUuid;
-      }
+      if (itemName && acctUuid) numberMap[`name::${itemName.toLowerCase()}`] = acctUuid;
+
       const subType = item.account_sub_type || item.sub_account_type;
-      if (acctUuid && subType) {
-        subTypeByUuid[acctUuid] = subType;
-      }
+      if (acctUuid && subType)  subTypeByUuid[acctUuid] = subType;
+      if (acctUuid && acctType) typeByUuid[acctUuid]    = acctType;
+
       if (item.sub_accounts?.length) traverse(item.sub_accounts);
-      if (item.children?.length) traverse(item.children);
+      if (item.children?.length)     traverse(item.children);
     }
   }
   traverse(accounts);
-  return { numberMap, subTypeByUuid };
+  return { numberMap, subTypeByUuid, typeByUuid };
+}
+
+// Resolve an income_account_number/name from the CSV → UUID.
+// Accepts: account number ("4001"), account name ("Design Income"), or either with spaces.
+// Warns if the matched account is not an income-type account.
+function resolveIncomeAccount(
+  raw: string,
+  numberMap: Record<string, string>,
+  typeByUuid: Record<string, string>,
+  label: string,
+): string | undefined {
+  const val = String(raw).trim();
+  if (!val) return undefined;
+
+  // Try by number, then by name
+  const uuid = numberMap[val] ?? numberMap[`name::${val.toLowerCase()}`];
+  if (!uuid) {
+    console.warn(`[${label}] income account "${val}" not found in COA/ledger — will fall back to FreshBooks default`);
+    return undefined;
+  }
+
+  // Verify the account is an income-type account
+  const acctType = typeByUuid[uuid];
+  if (acctType && acctType !== 'income') {
+    console.warn(`[${label}] income account "${val}" resolved to UUID ${uuid} but account_type="${acctType}" (expected "income") — skipping to avoid wrong mapping`);
+    return undefined;
+  }
+  if (!acctType) {
+    // Type not known (e.g. system account) — allow it through with a note
+    console.log(`[${label}] income account "${val}" → ${uuid} (type unknown — using anyway)`);
+  } else {
+    console.log(`[${label}] income account "${val}" → ${uuid} (type=${acctType})`);
+  }
+  return uuid;
 }
 
 
@@ -1839,11 +1867,12 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
   // Merge so income_account_number lookup works even for accounts with no JE history.
   const coaRes = await getChartOfAccounts();
   const coaAccounts: any[] = coaRes?.response?.result?.journal_entry_accounts || [];
-  const { numberMap } = buildMaps(coaAccounts);
+  const { numberMap, typeByUuid } = buildMaps(coaAccounts);
 
   const ledgerRes = await getLedgerAccounts();
-  const { numberMap: ledgerMap } = buildMaps(ledgerRes?.accounts || []);
+  const { numberMap: ledgerMap, typeByUuid: ledgerTypeMap } = buildMaps(ledgerRes?.accounts || []);
   Object.assign(numberMap, ledgerMap);
+  Object.assign(typeByUuid, ledgerTypeMap);
 
   const existingServicesRes = await getServices();
   const existingServices: any[] = existingServicesRes?.response?.result?.services || [];
@@ -1854,12 +1883,9 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
 
     if (row.billable) payload.billable = row.billable === 'true';
 
-    let income_account_id: string | undefined;
-    if (row.income_account_number) {
-      // Trust the column name — no sub_type filter. FreshBooks validates on its end.
-      income_account_id = numberMap[row.income_account_number]
-        ?? numberMap[`name::${row.income_account_number.toLowerCase()}`];
-    }
+    const income_account_id = row.income_account_number
+      ? resolveIncomeAccount(row.income_account_number, numberMap, typeByUuid, 'SERVICES')
+      : undefined;
     if (income_account_id) payload.income_account_id = income_account_id;
 
     const res = await createService(payload);
