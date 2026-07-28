@@ -463,6 +463,12 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
   // Log unique account numbers from the CSV to compare against numberMap
   const uniqueAccounts = [...new Set(rows.map((r: any) => r.income_account_number).filter(Boolean))];
   console.log('[ITEMS] Unique income_account_numbers in CSV:', uniqueAccounts.slice(0, 10));
+  // Log what UUIDs we resolved for those numbers
+  for (const acctNum of uniqueAccounts.slice(0, 10)) {
+    const resolved = numberMap[String(acctNum)] ?? numberMap[`name::${String(acctNum).toLowerCase()}`];
+    console.log(`[ITEMS ACCT MAP] "${acctNum}" → ${resolved ?? '(NOT FOUND)'}`);
+  }
+  console.log('[ITEMS] Total numberMap entries:', Object.keys(numberMap).length);
 
   return runMigration('items', rows, async (row) => {
     let income_account_id: string | undefined;
@@ -473,6 +479,8 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
         ?? numberMap[`name::${row.income_account_number.toLowerCase()}`];
       if (!income_account_id) {
         console.warn(`[ITEMS ACCT] "${row.income_account_number}" not found in FreshBooks COA or ledger — falling back to Sales default`);
+      } else {
+        console.log(`[ITEMS ACCT] "${row.income_account_number}" → income_account_id=${income_account_id}`);
       }
     }
 
@@ -487,11 +495,15 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
     if (income_account_id) payload.income_account_id = income_account_id;
 
     const archivedId = archivedByName[row.name.toLowerCase()];
+    let fbResponse: any;
     if (archivedId) {
-      await updateItem(archivedId, payload);
+      fbResponse = await updateItem(archivedId, payload);
     } else {
-      await createItem(payload);
+      fbResponse = await createItem(payload);
     }
+    // Log what FreshBooks actually stored for income_account_id
+    const stored = fbResponse?.response?.result?.item?.income_account_id;
+    console.log(`[ITEMS STORED] "${row.name}" income_account_id stored by FB: ${stored ?? '(none/null)'}`);
   },
   (row) => row.name,
   (row) => existingItemKeys.has(row.name.toLowerCase())
