@@ -16,7 +16,7 @@ import {
   createBillPayment,
   createPayment,
   getChartOfAccounts, getLedgerAccounts, createChartOfAccount, createAccountGroup,
-  createService, setServiceRate, getServices,
+  createService, setServiceRate, getServices, getTasks, updateTask,
   getJournalEntries, createJournalEntry,
   getSessionTokenId,
   getSessionTriggeredBy,
@@ -1874,25 +1874,54 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
   Object.assign(numberMap, ledgerMap);
   Object.assign(typeByUuid, ledgerTypeMap);
 
+  // FreshBooks income account on services lives on the TASK object (not the service itself).
+  // createService({ income_account_id }) is silently ignored — must use updateTask({ account_uuid }).
+  // Pre-fetch tasks so we can find the matching task after each service is created.
+  const allTasks = await getTasks();
+  const taskByName: Record<string, any> = {};
+  for (const t of allTasks) {
+    if (t.name) taskByName[t.name.toLowerCase().trim()] = t;
+  }
+
   const existingServicesRes = await getServices();
   const existingServices: any[] = existingServicesRes?.response?.result?.services || [];
   const existingServiceKeys = new Set(existingServices.map((s: any) => (s.name || '').toLowerCase()));
 
   return runMigration('services', rows, async (row) => {
     const payload: Record<string, any> = { name: row.name };
-
     if (row.billable) payload.billable = row.billable === 'true';
 
     const income_account_id = row.income_account_number
       ? resolveIncomeAccount(row.income_account_number, numberMap, typeByUuid, 'SERVICES')
       : undefined;
-    if (income_account_id) payload.income_account_id = income_account_id;
 
     const res = await createService(payload);
     const serviceId = res?.service?.id;
 
-    if (serviceId && row.rate) {
-      await setServiceRate(serviceId, row.rate);
+    // Set rate
+    if (serviceId && row.rate) await setServiceRate(serviceId, row.rate);
+
+    // Set income account via Tasks API (the only way FreshBooks supports it)
+    if (income_account_id) {
+      // FreshBooks auto-creates a task when a service is created — find it by name.
+      // Re-fetch tasks if not in the pre-fetched map (service might have just been created).
+      let task = taskByName[row.name.toLowerCase().trim()];
+      if (!task) {
+        const freshTasks = await getTasks();
+        task = freshTasks.find((t: any) => t.name?.toLowerCase().trim() === row.name.toLowerCase().trim());
+        if (task) taskByName[row.name.toLowerCase().trim()] = task;
+      }
+      if (task) {
+        await updateTask(task.id, {
+          name:         task.name,
+          billable:     task.billable ?? true,
+          account_uuid: income_account_id,
+          rate:         task.rate ?? { amount: row.rate ?? '0.00', code: 'USD' },
+        });
+        console.log(`[SERVICES] income account set on task "${row.name}" → ${income_account_id}`);
+      } else {
+        console.warn(`[SERVICES] task not found for service "${row.name}" — income account not set`);
+      }
     }
   },
   (row) => row.name,
