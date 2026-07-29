@@ -447,7 +447,20 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
   Object.assign(numberMap, ledgerMap);
   Object.assign(typeByUuid, ledgerTypeMap);
 
-  console.log(`[ITEMS] COA accounts loaded: ${accounts.length}, numberMap keys: ${Object.keys(numberMap).length}`);
+  // Build integer-ID map from raw COA accounts.
+  // The old Items API uses the integer account `id` for income_account_id, not UUIDs.
+  const intIdByNumber: Record<string, number> = {};
+  function traverseForIntIds(items: any[]) {
+    for (const item of items) {
+      const acctNum = item.account_number || item.number;
+      if (acctNum && typeof item.id === 'number') intIdByNumber[String(acctNum)] = item.id;
+      if (item.sub_accounts?.length) traverseForIntIds(item.sub_accounts);
+      if (item.children?.length)     traverseForIntIds(item.children);
+    }
+  }
+  traverseForIntIds(accounts);
+
+  console.log(`[ITEMS] COA accounts: ${accounts.length}, numberMap: ${Object.keys(numberMap).length} keys, intIdMap: ${Object.keys(intIdByNumber).length} keys`);
 
   const existingItemsRes = await getItems();
   const activeItems: any[] = existingItemsRes?.response?.result?.items || [];
@@ -461,20 +474,18 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
   }
   console.log(`[ITEMS] Active: ${activeItems.length}, Archived: ${archivedItems.length}`);
 
-  // Log unique account numbers from the CSV to compare against numberMap
+  // Log unique account numbers from the CSV — show both UUID and integer ID
   const uniqueAccounts = [...new Set(rows.map((r: any) => r.income_account_number).filter(Boolean))];
-  console.log('[ITEMS] Unique income_account_numbers in CSV:', uniqueAccounts.slice(0, 10));
-  // Log what UUIDs we resolved for those numbers
   for (const acctNum of uniqueAccounts.slice(0, 10)) {
-    const resolved = numberMap[String(acctNum)] ?? numberMap[`name::${String(acctNum).toLowerCase()}`];
-    console.log(`[ITEMS ACCT MAP] "${acctNum}" → ${resolved ?? '(NOT FOUND)'}`);
+    const uuid  = numberMap[String(acctNum)] ?? numberMap[`name::${String(acctNum).toLowerCase()}`];
+    const intId = intIdByNumber[String(acctNum)];
+    console.log(`[ITEMS ACCT MAP] "${acctNum}" → uuid: ${uuid ?? '(NOT FOUND)'}, intId: ${intId ?? '(NOT FOUND)'}`);
   }
-  console.log('[ITEMS] Total numberMap entries:', Object.keys(numberMap).length);
 
   return runMigration('items', rows, async (row) => {
-    const income_account_id = row.income_account_number
-      ? resolveIncomeAccount(row.income_account_number, numberMap, typeByUuid, 'ITEMS')
-      : undefined;
+    const acctNum = row.income_account_number ? String(row.income_account_number).trim() : undefined;
+    const income_account_uuid   = acctNum ? resolveIncomeAccount(acctNum, numberMap, typeByUuid, 'ITEMS') : undefined;
+    const income_account_int_id = acctNum ? intIdByNumber[acctNum] : undefined;
 
     const payload: Record<string, any> = {
       name: row.name,
@@ -484,7 +495,9 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
       unit_cost: { amount: row.unit_cost, code: row.currency_code || 'USD' },
       vis_state: 0,
     };
-    if (income_account_id) payload.income_account_id = income_account_id;
+    // Old Items API uses integer account IDs; fall back to UUID if no integer found
+    if (income_account_int_id)        payload.income_account_id = income_account_int_id;
+    else if (income_account_uuid)     payload.income_account_id = income_account_uuid;
 
     const archivedId = archivedByName[row.name.toLowerCase()];
     let fbResponse: any;
@@ -493,9 +506,24 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
     } else {
       fbResponse = await createItem(payload);
     }
-    // Log what FreshBooks actually stored for income_account_id
+
     const stored = fbResponse?.response?.result?.item?.income_account_id;
-    console.log(`[ITEMS STORED] "${row.name}" income_account_id stored by FB: ${stored ?? '(none/null)'}`);
+    const itemId  = fbResponse?.response?.result?.item?.id;
+    console.log(`[ITEMS STORED] "${row.name}" stored=${stored ?? 'null'} (sent intId=${income_account_int_id ?? 'n/a'} uuid=${income_account_uuid ?? 'n/a'})`);
+
+    // If FB still ignores income_account_id on create, try an explicit update
+    if (!stored && itemId && (income_account_int_id || income_account_uuid)) {
+      const updatePayload: Record<string, any> = {};
+      if (income_account_int_id) updatePayload.income_account_id = income_account_int_id;
+      else                       updatePayload.income_account_id = income_account_uuid;
+      try {
+        const upd = await updateItem(itemId, updatePayload);
+        const storedUpd = upd?.response?.result?.item?.income_account_id;
+        console.log(`[ITEMS UPDATE] "${row.name}" income_account_id after explicit updateItem: ${storedUpd ?? 'null'}`);
+      } catch (e: any) {
+        console.warn(`[ITEMS UPDATE] "${row.name}" updateItem failed: ${e.message}`);
+      }
+    }
   },
   (row) => row.name,
   (row) => existingItemKeys.has(row.name.toLowerCase())
