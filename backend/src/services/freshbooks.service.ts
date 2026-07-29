@@ -1422,30 +1422,24 @@ async function bulkUpdateItems(rows: Array<Record<string, any>>): Promise<{ upda
     const costCode = row['currency_code'] ?? row['unit_cost_code'] ?? 'USD';
     if (costVal !== '' && costVal != null) body.unit_cost = { amount: String(costVal), code: costCode };
 
-    // income_account_number: try integer id, UUID, and account_name string (expenses use account_name to set COA)
+    // income_account_number → account_uuid (confirmed via browser inspect: FreshBooks uses account_uuid, not income_account_id)
     const acctRaw = row['income_account_number'] ? String(row['income_account_number']).trim() : '';
     if (acctRaw) {
-      const intId    = intIdByNumber[acctRaw] ?? intIdByNumber[`name::${acctRaw.toLowerCase()}`];
-      const uuid     = uuidByNumber[acctRaw]  ?? uuidByNumber[`name::${acctRaw.toLowerCase()}`];
-      const acctName = nameByNumber[acctRaw]  ?? nameByNumber[`name::${acctRaw.toLowerCase()}`];
-      if (intId)          body.income_account_id   = intId;
-      else if (uuid)      body.income_account_id   = uuid;
-      if (acctName) {
-        body.income_account_name = acctName;  // try both field name variants
-        body.account_name        = acctName;
-      }
-      if (!intId && !uuid && !acctName) {
+      const uuid = uuidByNumber[acctRaw] ?? uuidByNumber[`name::${acctRaw.toLowerCase()}`];
+      if (uuid) {
+        body.account_uuid = uuid;
+      } else {
         errors.push(`Row ${i + 1} (ID ${rawId}): income_account_number "${acctRaw}" not found in COA`);
       }
-      console.log(`[ITEMS UPDATE] Row ${i+1} ID=${rawId} acct="${acctRaw}" intId=${intId ?? 'n/a'} uuid=${uuid ? uuid.slice(0,8)+'…' : 'n/a'} name="${acctName ?? 'n/a'}"`);
+      console.log(`[ITEMS UPDATE] Row ${i+1} ID=${rawId} acct="${acctRaw}" → account_uuid=${uuid ?? 'NOT FOUND'}`);
     }
 
     if (Object.keys(body).length === 0) { updated++; continue; }
 
     try {
       const res = await updateItem(Number(rawId), body);
-      const stored = res?.response?.result?.item?.income_account_id;
-      console.log(`[ITEMS UPDATE] ID=${rawId} → stored income_account_id=${stored ?? 'null'}`);
+      const stored = res?.response?.result?.item?.account_uuid ?? res?.response?.result?.item?.income_account_id;
+      console.log(`[ITEMS UPDATE] ID=${rawId} → stored account_uuid=${stored ?? 'null'}`);
       updated++;
     } catch (err: any) {
       failed++;

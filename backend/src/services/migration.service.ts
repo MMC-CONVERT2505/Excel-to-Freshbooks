@@ -495,9 +495,9 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
       unit_cost: { amount: row.unit_cost, code: row.currency_code || 'USD' },
       vis_state: 0,
     };
-    // Old Items API uses integer account IDs; fall back to UUID if no integer found
-    if (income_account_int_id)        payload.income_account_id = income_account_int_id;
-    else if (income_account_uuid)     payload.income_account_id = income_account_uuid;
+    // FreshBooks Items API uses account_uuid (confirmed via browser inspect) — not income_account_id
+    if (income_account_uuid)          payload.account_uuid = income_account_uuid;
+    else if (income_account_int_id)   payload.income_account_id = income_account_int_id;
 
     const archivedId = archivedByName[row.name.toLowerCase()];
     let fbResponse: any;
@@ -511,11 +511,11 @@ export async function migrateItems(tokenId: number | null = null): Promise<Migra
     const itemId  = fbResponse?.response?.result?.item?.id;
     console.log(`[ITEMS STORED] "${row.name}" stored=${stored ?? 'null'} (sent intId=${income_account_int_id ?? 'n/a'} uuid=${income_account_uuid ?? 'n/a'})`);
 
-    // If FB still ignores income_account_id on create, try an explicit update
-    if (!stored && itemId && (income_account_int_id || income_account_uuid)) {
+    // account_uuid ignored on create — set via explicit updateItem
+    if (!stored && itemId && (income_account_uuid || income_account_int_id)) {
       const updatePayload: Record<string, any> = {};
-      if (income_account_int_id) updatePayload.income_account_id = income_account_int_id;
-      else                       updatePayload.income_account_id = income_account_uuid;
+      if (income_account_uuid)   updatePayload.account_uuid = income_account_uuid;
+      else                       updatePayload.income_account_id = income_account_int_id;
       try {
         const upd = await updateItem(itemId, updatePayload);
         const storedUpd = upd?.response?.result?.item?.income_account_id;
