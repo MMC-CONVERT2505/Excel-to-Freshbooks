@@ -273,6 +273,15 @@ export const TEMPLATES: Record<string, TplCol[]> = {
 
 // ── Update templates (id + editable fields, for the Update panel download) ──
 export const UPDATE_TEMPLATES: Record<string, TplCol[]> = {
+  'items': [
+    { col:'id',                    req:true,  ds:'FreshBooks item ID (do not edit)', ex:'987654' },
+    { col:'name',                  req:false, ds:'Item name', ex:'Widget A' },
+    { col:'description',           req:false, ds:'Item description', ex:'Standard widget' },
+    { col:'unit_cost',             req:false, ds:'Unit price', ex:'19.99' },
+    { col:'currency_code',         req:false, ds:'3-letter ISO code (defaults to USD)', ex:'USD' },
+    { col:'sku',                   req:false, ds:'Stock keeping unit', ex:'WID-A-01' },
+    { col:'income_account_number', req:false, ds:'COA account number for income', ex:'90022' },
+  ],
   'expenses': [
     { col:'id',          req:true,  ds:'FreshBooks expense ID (do not edit)', ex:'2632555' },
     { col:'date',        req:false, ds:'Expense date YYYY-MM-DD', ex:'2026-05-01' },

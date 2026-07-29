@@ -1373,6 +1373,85 @@ async function exportInvoicesExcel(): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// ── ITEMS BULK UPDATE ────────────────────────────────────────────────────────────────
+async function bulkUpdateItems(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
+  // Build integer-ID and UUID maps for income_account_number lookup
+  const [coaRes, ledgerRes] = await Promise.all([getChartOfAccounts(), getLedgerAccounts()]);
+  const intIdByNumber: Record<string, number> = {};
+  const uuidByNumber:  Record<string, string>  = {};
+  function indexAccounts(items: any[]) {
+    for (const a of items) {
+      const num = String(a.account_number || a.number || '');
+      if (num) {
+        if (typeof a.id === 'number') intIdByNumber[num] = a.id;
+        const uuid = a.account_uuid || a.uuid;
+        if (uuid) uuidByNumber[num] = uuid;
+        // also index by name
+        const name = (a.account_name || a.name || '').toLowerCase();
+        if (name) {
+          if (typeof a.id === 'number') intIdByNumber[`name::${name}`] = a.id;
+          if (uuid) uuidByNumber[`name::${name}`] = uuid;
+        }
+      }
+      if (a.sub_accounts?.length) indexAccounts(a.sub_accounts);
+      if (a.children?.length)     indexAccounts(a.children);
+    }
+  }
+  indexAccounts(coaRes?.response?.result?.journal_entry_accounts || []);
+  indexAccounts(ledgerRes?.accounts || []);
+
+  let updated = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawId = row['id'] ?? row['ID'];
+    if (rawId == null) { failed++; errors.push(`Row ${i + 1}: missing "id" column`); continue; }
+
+    const body: Record<string, any> = {};
+
+    if (row['name']        && String(row['name']).trim())        body.name        = String(row['name']).trim();
+    if (row['description'] && String(row['description']).trim()) body.description = String(row['description']).trim();
+    if (row['sku']         && String(row['sku']).trim())         body.sku         = String(row['sku']).trim();
+
+    const costVal  = row['unit_cost'] ?? row['unit_cost_amount'];
+    const costCode = row['currency_code'] ?? row['unit_cost_code'] ?? 'USD';
+    if (costVal !== '' && costVal != null) body.unit_cost = { amount: String(costVal), code: costCode };
+
+    // income_account_number → integer ID (old Items API) or UUID fallback
+    const acctRaw = row['income_account_number'] ? String(row['income_account_number']).trim() : '';
+    if (acctRaw) {
+      const intId = intIdByNumber[acctRaw] ?? intIdByNumber[`name::${acctRaw.toLowerCase()}`];
+      const uuid  = uuidByNumber[acctRaw]  ?? uuidByNumber[`name::${acctRaw.toLowerCase()}`];
+      if (intId)      body.income_account_id = intId;
+      else if (uuid)  body.income_account_id = uuid;
+      else errors.push(`Row ${i + 1} (ID ${rawId}): income_account_number "${acctRaw}" not found in COA`);
+    }
+
+    if (Object.keys(body).length === 0) { updated++; continue; }
+
+    try {
+      await updateItem(Number(rawId), body);
+      updated++;
+    } catch (err: any) {
+      failed++;
+      const status = err?.response?.status;
+      const detail = err?.response?.data;
+      const fbErrors = detail?.response?.errors ?? detail?.errors;
+      const fbMsg = Array.isArray(fbErrors)
+        ? fbErrors.map((e: any) => e.message ?? e.errno ?? JSON.stringify(e)).join('; ')
+        : null;
+      const errMsg = fbMsg
+        ? `HTTP ${status} — ${fbMsg}`
+        : detail ? `HTTP ${status} — ${JSON.stringify(detail)}` : `HTTP ${status} — ${err.message}`;
+      errors.push(`Row ${i + 1} (ID ${rawId}): ${errMsg}`);
+    }
+  }
+
+  console.log(`[ITEMS UPDATE] Done — updated: ${updated}, failed: ${failed}`);
+  return { updated, failed, errors };
+}
+
 // ── ENTITY-LEVEL OPERATIONS (delete by ID, bulk delete, update by ID, bulk update) ──
 
 type AnyDeleteFn = (id: any) => Promise<any>;
@@ -1391,7 +1470,7 @@ interface EntityCfg {
 const ENTITY_CFG: Record<string, EntityCfg> = {
   'clients':           { getAll: getClients,        extractRecords: d => d.response?.result?.clients || [],         deleteOne: deleteClient,        updateOne: updateClient },
   'vendors':           { getAll: getVendors,         extractRecords: d => d.response?.result?.bill_vendors || [],    deleteOne: deleteVendor,        updateOne: updateVendor },
-  'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem,  exportFn: exportItemsExcel },
+  'items':             { getAll: getItems,           extractRecords: d => d.response?.result?.items || [],           deleteOne: deleteItem,          updateOne: updateItem,  exportFn: exportItemsExcel, bulkUpdateFn: bulkUpdateItems },
   'expenses':          { getAll: getExpenses,        extractRecords: d => d.response?.result?.expenses || [],        deleteOne: deleteExpense,       updateOne: updateExpense,  exportFn: exportExpensesExcel, bulkUpdateFn: bulkUpdateExpenses },
   'income':            { getAll: getIncome,          extractRecords: d => d.response?.result?.other_incomes || [],   deleteOne: deleteIncome,        updateOne: updateIncome },
   'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel, bulkUpdateFn: bulkUpdateInvoices },
