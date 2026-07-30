@@ -1075,24 +1075,31 @@ async function bulkUpdateInvoices(rows: Array<Record<string, any>>): Promise<{ u
         if (header[f] !== undefined && header[f] !== '') invoiceBody[f] = header[f];
       }
 
-      const lines = lineRows
-        .filter(r => r['line_qty'] !== '' || r['line_unit_cost'] !== '')
-        .map(r => {
-          const lineObj: Record<string, any> = {
-            name:        r['line_name']        ?? '',
-            description: r['line_description'] ?? '',
-            qty:         Number(r['line_qty'])  || 1,
-            unit_cost: {
-              amount: String(r['line_unit_cost'] ?? 0),
-              code:   header['currency_code'] || 'USD',
-            },
-          };
-          if (r['tax_name1']) { lineObj.taxName1 = r['tax_name1']; lineObj.taxAmount1 = Number(r['tax_amount1']) || 0; }
-          if (r['tax_name2']) { lineObj.taxName2 = r['tax_name2']; lineObj.taxAmount2 = Number(r['tax_amount2']) || 0; }
-          return lineObj;
-        });
+      // Only build lines if unit_cost is explicitly provided — otherwise skip lines
+      // to avoid zeroing out amounts when user only updates invoice-level fields or line_name.
+      const hasUnitCost = lineRows.some(
+        r => r['line_unit_cost'] !== undefined && r['line_unit_cost'] !== ''
+      );
 
-      if (lines.length > 0) invoiceBody.lines = lines;
+      if (hasUnitCost) {
+        const lines = lineRows
+          .filter(r => r['line_name'] || r['line_qty'] !== '' || r['line_unit_cost'] !== '')
+          .map(r => {
+            const lineObj: Record<string, any> = {
+              name:        r['line_name']        ?? '',
+              description: r['line_description'] ?? '',
+              qty:         Number(r['line_qty'])  || 1,
+              unit_cost: {
+                amount: String(r['line_unit_cost'] ?? 0),
+                code:   header['currency_code'] || 'USD',
+              },
+            };
+            if (r['tax_name1']) { lineObj.taxName1 = r['tax_name1']; lineObj.taxAmount1 = Number(r['tax_amount1']) || 0; }
+            if (r['tax_name2']) { lineObj.taxName2 = r['tax_name2']; lineObj.taxAmount2 = Number(r['tax_amount2']) || 0; }
+            return lineObj;
+          });
+        if (lines.length > 0) invoiceBody.lines = lines;
+      }
 
       const invNum = header['invoice_number'] ?? rawId;
       await updateInvoice(invoiceId, invoiceBody);
