@@ -176,10 +176,10 @@ export default function ConnectPage() {
                   disabled={selecting}
                 >
                   <div className="business-option__avatar">
-                    {b.name.charAt(0).toUpperCase()}
+                    {(b.name || '?').charAt(0).toUpperCase()}
                   </div>
                   <div className="business-option__meta">
-                    <div className="business-option__name">{b.name}</div>
+                    <div className="business-option__name">{b.name || '(no name)'}</div>
                     <div className="business-option__id">
                       ID: {b.account_id}
                     </div>
