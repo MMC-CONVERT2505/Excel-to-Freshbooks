@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { CatIcon } from '../components/CatIcon';
 import { useToast } from '../context/ToastContext';
+import { useApp } from '../context/AppContext';
 import { fbExportEntity, fbExportAll } from '../lib/api';
 import type { Cat } from '../data/entities';
 
@@ -35,10 +37,13 @@ const DlIcon = () => (
 );
 
 export default function FetchPage() {
-  const { toast } = useToast();
-  const [busy,     setBusy]     = useState<Set<string>>(new Set());
-  const [allBusy,  setAllBusy]  = useState(false);
-  const [done,     setDone]     = useState<Set<string>>(new Set());
+  const { toast }       = useToast();
+  const { fbConnected } = useApp();
+  const navigate        = useNavigate();
+  const { workflow = 'excel' } = useParams<{ workflow: string }>();
+  const [busy,    setBusy]    = useState<Set<string>>(new Set());
+  const [allBusy, setAllBusy] = useState(false);
+  const [done,    setDone]    = useState<Set<string>>(new Set());
 
   async function downloadOne(id: string) {
     setBusy(prev => new Set(prev).add(id));
@@ -69,6 +74,16 @@ export default function FetchPage() {
   return (
     <div className="fetch-page">
 
+      {/* ── not connected banner ── */}
+      {!fbConnected && (
+        <div className="fetch-noconn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <span>FreshBooks is not connected. <button className="fetch-noconn__link" onClick={() => navigate(`/${workflow}/connect`)}>Connect now →</button></span>
+        </div>
+      )}
+
       {/* ── header card ── */}
       <div className="card fetch-header">
         <div className="fetch-header__text">
@@ -78,7 +93,8 @@ export default function FetchPage() {
         <button
           className="btn btn--primary fetch-header__btn"
           onClick={downloadAll}
-          disabled={allBusy}
+          disabled={allBusy || !fbConnected}
+          title={!fbConnected ? 'Connect FreshBooks first' : undefined}
         >
           {allBusy
             ? <><Spin /> Downloading all…</>
@@ -117,7 +133,8 @@ export default function FetchPage() {
               <button
                 className="btn btn--ghost btn--block fetch-card__btn"
                 onClick={() => downloadOne(mod.id)}
-                disabled={isBusy || allBusy}
+                disabled={isBusy || allBusy || !fbConnected}
+                title={!fbConnected ? 'Connect FreshBooks first' : undefined}
               >
                 {isBusy ? <><Spin /> Fetching…</> : <><DlIcon /> Download</>}
               </button>
