@@ -371,7 +371,9 @@ export async function getLedgerAccounts() {
       { headers: authHeader(token.accessToken) }
     );
     const data = res.data;
-    const batch = data?.accounts || data?.ledgerAccounts || data?.response?.result?.accounts || [];
+    if (page === 1) console.log('[COA] ledger_accounts raw keys:', Object.keys(data || {}));
+    // FreshBooks new-API endpoints return snake_case top-level key
+    const batch = data?.ledger_accounts || data?.accounts || data?.ledgerAccounts || data?.response?.result?.accounts || [];
     allAccounts.push(...batch);
     const total = data?.total ?? data?.meta?.total ?? 0;
     pages = data?.pages || data?.meta?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
@@ -1721,8 +1723,12 @@ export async function getRecurringInvoices() {
       `${BASE}/accounting/account/${accountId()}/invoices/recurring_profiles?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
-    const result = res.data?.response?.result;
-    allProfiles.push(...(result?.recurring_profiles || []));
+    const data = res.data;
+    if (page === 1) console.log('[RecurringInvoices] raw keys:', Object.keys(data || {}), '| result keys:', Object.keys(data?.response?.result || {}));
+    const result = data?.response?.result;
+    // Key may be recurring_profiles, recurringprofiles, or profiles
+    const batch = result?.recurring_profiles || result?.recurringprofiles || result?.profiles || [];
+    allProfiles.push(...batch);
     pages = result?.pages || 1;
     page++;
   } while (page <= pages);
