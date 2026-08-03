@@ -1510,6 +1510,18 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
       if (body.rate) await updateServiceRate(id, String(body.rate));
     },
   },
+  'estimates': {
+    getAll: getEstimates,
+    extractRecords: (d: any) => d.response?.result?.estimates || [],
+    deleteOne: async () => { throw Object.assign(new Error('Estimates cannot be deleted via this API'), { statusCode: 400 }); },
+    updateOne: async () => { throw Object.assign(new Error('Estimates cannot be updated via this API'), { statusCode: 400 }); },
+  },
+  'recurring-invoices': {
+    getAll: getRecurringInvoices,
+    extractRecords: (d: any) => d.response?.result?.recurring_profiles || [],
+    deleteOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be deleted via this API'), { statusCode: 400 }); },
+    updateOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be updated via this API'), { statusCode: 400 }); },
+  },
 };
 
 export async function exportEntityExcel(entityId: string): Promise<Buffer> {
@@ -1568,8 +1580,10 @@ export async function getAllEntityCounts(): Promise<Record<string, number | null
     { id: 'invoice-payments', url: `${BASE}/accounting/account/${acctId}/payments/payments?per_page=1`,             extract: d => d?.response?.result?.total ?? null },
     { id: 'bill-payments',    url: `${BASE}/accounting/account/${acctId}/bill_payments/bill_payments?per_page=1`,   extract: d => d?.response?.result?.total ?? null },
     { id: 'services',         url: `${BASE}/comments/business/${bizId}/services?per_page=1`,                        extract: d => d?.response?.result?.total ?? null },
-    { id: 'journal-entries',  url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?per_page=1`,           extract: d => d?.total ?? null },
-    { id: 'chart-of-accounts',url: `${BASE}/accounting/businesses/${bizUuid}/ledger_accounts/accounts?per_page=1`, extract: d => d?.total ?? null },
+    { id: 'journal-entries',    url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?per_page=1`,           extract: d => d?.total ?? null },
+    { id: 'chart-of-accounts',  url: `${BASE}/accounting/businesses/${bizUuid}/ledger_accounts/accounts?per_page=1`, extract: d => d?.total ?? d?.meta?.total ?? null },
+    { id: 'estimates',          url: `${BASE}/accounting/account/${acctId}/estimates/estimates?per_page=1`,           extract: d => d?.response?.result?.total ?? null },
+    { id: 'recurring-invoices', url: `${BASE}/accounting/account/${acctId}/invoices/recurring_profiles?per_page=1`,  extract: d => d?.response?.result?.total ?? null },
   ];
 
   const counts: Record<string, number | null> = {};
@@ -1591,8 +1605,8 @@ export async function exportAllExcel(): Promise<Buffer> {
 
   const ORDER = [
     'chart-of-accounts', 'clients', 'vendors', 'items', 'services',
-    'expenses', 'income', 'invoices', 'bills', 'credit-notes',
-    'invoice-payments', 'bill-payments', 'journal-entries',
+    'expenses', 'income', 'invoices', 'recurring-invoices', 'bills', 'credit-notes',
+    'invoice-payments', 'bill-payments', 'estimates', 'journal-entries',
   ];
 
   const wb = XLSX.utils.book_new();
@@ -1696,6 +1710,23 @@ export async function bulkUpdateEntity(entityId: string): Promise<{ updated: num
     }
   }
   return { updated, failed, errors };
+}
+
+export async function getRecurringInvoices() {
+  const token = await getToken();
+  const allProfiles: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/invoices/recurring_profiles?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allProfiles.push(...(result?.recurring_profiles || []));
+    pages = result?.pages || 1;
+    page++;
+  } while (page <= pages);
+  return { response: { result: { recurring_profiles: allProfiles, total: allProfiles.length } } };
 }
 
 export async function getEstimates() {
