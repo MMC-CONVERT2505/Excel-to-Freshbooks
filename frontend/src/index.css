@@ -1773,7 +1773,9 @@ tr.tr-retrying td{animation:row-pulse 1.1s ease-in-out infinite;}
 .fetch-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;flex-wrap:wrap;position:relative;overflow:hidden;}
 .fetch-header__text h2{margin:0;font-size:17px;font-weight:700;color:var(--text-1);}
 .fetch-header__text p{margin:4px 0 0;font-size:13px;color:var(--text-3);transition:color .3s;}
+.fetch-header__actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .fetch-header__btn{height:40px;white-space:nowrap;gap:7px;}
+.fetch-header__cancel{height:40px;gap:6px;color:var(--error);border-color:var(--error);}
 
 /* sweeping progress bar */
 .fetch-bar{position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--border);overflow:hidden;}

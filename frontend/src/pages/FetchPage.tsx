@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CatIcon } from '../components/CatIcon';
 import { useToast } from '../context/ToastContext';
@@ -45,6 +45,12 @@ export default function FetchPage() {
   const [busy,    setBusy]    = useState<Set<string>>(new Set());
   const [allBusy, setAllBusy] = useState(false);
   const [done,    setDone]    = useState<Set<string>>(new Set());
+  const abortRef = useRef<AbortController | null>(null);
+
+  function cancelAll() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }
 
   async function downloadOne(id: string) {
     setBusy(prev => new Set(prev).add(id));
@@ -60,10 +66,12 @@ export default function FetchPage() {
   }
 
   async function downloadAll() {
+    const controller = new AbortController();
+    abortRef.current = controller;
     setAllBusy(true);
     setDone(new Set());
     try {
-      await fbExportAll();
+      await fbExportAll(controller.signal);
       // stagger checkmarks one-by-one for visual feedback
       for (let i = 0; i < MODULES.length; i++) {
         await new Promise(r => setTimeout(r, 90));
@@ -71,9 +79,14 @@ export default function FetchPage() {
       }
       toast('success', 'All modules downloaded', 'freshbooks_all.xlsx — each module is a separate sheet.');
     } catch (err: any) {
-      toast('error', 'Download failed', err.message);
+      if (err.name === 'AbortError') {
+        toast('warning', 'Cancelled', 'Download All was cancelled.');
+      } else {
+        toast('error', 'Download failed', err.message);
+      }
     } finally {
       setAllBusy(false);
+      abortRef.current = null;
     }
   }
 
@@ -98,17 +111,25 @@ export default function FetchPage() {
           <h2>Fetch from FreshBooks</h2>
           <p>{allBusy ? 'Fetching all modules from FreshBooks…' : 'Download current records from any module as an Excel file.'}</p>
         </div>
-        <button
-          className="btn btn--primary fetch-header__btn"
-          onClick={downloadAll}
-          disabled={anyBusy || !fbConnected}
-          title={!fbConnected ? 'Connect FreshBooks first' : undefined}
-        >
-          {allBusy
-            ? <><Spin size={15} /> Downloading all…</>
-            : <><DlIcon /> Download All Modules</>
-          }
-        </button>
+        <div className="fetch-header__actions">
+          {allBusy && (
+            <button className="btn btn--ghost fetch-header__cancel" onClick={cancelAll}>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+              Stop
+            </button>
+          )}
+          <button
+            className="btn btn--primary fetch-header__btn"
+            onClick={downloadAll}
+            disabled={anyBusy || !fbConnected}
+            title={!fbConnected ? 'Connect FreshBooks first' : undefined}
+          >
+            {allBusy
+              ? <><Spin size={15} /> Downloading all…</>
+              : <><DlIcon /> Download All Modules</>
+            }
+          </button>
+        </div>
 
         {/* sweeping progress bar */}
         {allBusy && (

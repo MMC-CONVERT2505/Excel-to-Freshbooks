@@ -219,10 +219,11 @@ export async function fbExportEntity(entity: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export async function fbExportAll(): Promise<void> {
+export async function fbExportAll(signal?: AbortSignal): Promise<void> {
   const sessionId = getSessionId();
   const appToken  = getAppToken();
   const res = await fetch(`${API_BASE}/freshbooks/export-all`, {
+    signal,
     headers: {
       ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
       ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
