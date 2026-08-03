@@ -21,6 +21,7 @@ import {
   deleteEntityById, bulkDeleteEntity,
   updateEntityById, bulkUpdateEntity,
   exportEntityExcel, exportAllExcel,
+  getAllEntityCounts,
   runWithToken,
 } from '../services/freshbooks.service.js';
 
@@ -173,6 +174,10 @@ export const exportEntity = wrap(async (req: Request, res: Response) => {
   res.setHeader('Content-Disposition', `attachment; filename="freshbooks_${entityId}.xlsx"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buffer);
+});
+
+export const getEntityCounts = wrap(async (req: Request, res: Response) => {
+  res.json(await ws(req, () => getAllEntityCounts()));
 });
 
 export const exportAll = wrap(async (req: Request, res: Response) => {

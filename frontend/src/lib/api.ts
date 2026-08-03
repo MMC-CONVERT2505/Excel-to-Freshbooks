@@ -219,6 +219,10 @@ export async function fbExportEntity(entity: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export function fbGetCounts(): Promise<Record<string, number | null>> {
+  return api('/freshbooks/counts');
+}
+
 export async function fbExportAll(signal?: AbortSignal): Promise<void> {
   const sessionId = getSessionId();
   const appToken  = getAppToken();

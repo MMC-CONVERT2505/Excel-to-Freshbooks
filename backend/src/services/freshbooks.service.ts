@@ -1549,6 +1549,41 @@ export async function exportEntityExcel(entityId: string): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+export async function getAllEntityCounts(): Promise<Record<string, number | null>> {
+  const token  = await getToken();
+  const h      = authHeader(token.accessToken);
+  const acctId = accountId();
+  const bizId  = businessId();
+  const bizUuid = businessUuid();
+
+  const tasks: Array<{ id: string; url: string; extract: (d: any) => number | null }> = [
+    { id: 'clients',          url: `${BASE}/accounting/account/${acctId}/users/clients?per_page=1`,                  extract: d => d?.response?.result?.total ?? null },
+    { id: 'vendors',          url: `${BASE}/accounting/account/${acctId}/bill_vendors/bill_vendors?per_page=1`,      extract: d => d?.response?.result?.total ?? null },
+    { id: 'items',            url: `${BASE}/accounting/account/${acctId}/items/items?per_page=1`,                    extract: d => d?.response?.result?.total ?? null },
+    { id: 'expenses',         url: `${BASE}/accounting/account/${acctId}/expenses/expenses?per_page=1`,              extract: d => d?.response?.result?.total ?? null },
+    { id: 'income',           url: `${BASE}/accounting/account/${acctId}/other_incomes/other_incomes?per_page=1`,   extract: d => d?.response?.result?.total ?? null },
+    { id: 'invoices',         url: `${BASE}/accounting/account/${acctId}/invoices/invoices?per_page=1`,              extract: d => d?.response?.result?.total ?? null },
+    { id: 'bills',            url: `${BASE}/accounting/account/${acctId}/bills/bills?per_page=1`,                   extract: d => d?.response?.result?.total ?? null },
+    { id: 'credit-notes',     url: `${BASE}/accounting/account/${acctId}/credit_notes/credit_notes?per_page=1`,     extract: d => d?.response?.result?.total ?? null },
+    { id: 'invoice-payments', url: `${BASE}/accounting/account/${acctId}/payments/payments?per_page=1`,             extract: d => d?.response?.result?.total ?? null },
+    { id: 'bill-payments',    url: `${BASE}/accounting/account/${acctId}/bill_payments/bill_payments?per_page=1`,   extract: d => d?.response?.result?.total ?? null },
+    { id: 'services',         url: `${BASE}/comments/business/${bizId}/services?per_page=1`,                        extract: d => d?.response?.result?.total ?? null },
+    { id: 'journal-entries',  url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?per_page=1`,           extract: d => d?.total ?? null },
+    { id: 'chart-of-accounts',url: `${BASE}/accounting/businesses/${bizUuid}/ledger_accounts/accounts?per_page=1`, extract: d => d?.total ?? null },
+  ];
+
+  const counts: Record<string, number | null> = {};
+  await Promise.allSettled(tasks.map(async ({ id, url, extract }) => {
+    try {
+      const res = await axios.get(url, { headers: h });
+      counts[id] = extract(res.data);
+    } catch {
+      counts[id] = null;
+    }
+  }));
+  return counts;
+}
+
 export async function exportAllExcel(): Promise<Buffer> {
   const { createRequire } = await import('module');
   const require = createRequire(import.meta.url);

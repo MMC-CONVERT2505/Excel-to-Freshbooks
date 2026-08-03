@@ -1,26 +1,30 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CatIcon } from '../components/CatIcon';
 import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
-import { fbExportEntity, fbExportAll } from '../lib/api';
+import { fbExportEntity, fbExportAll, fbGetCounts } from '../lib/api';
 import type { Cat } from '../data/entities';
 
 const MODULES: Array<{ id: string; name: string; cat: Cat; desc: string }> = [
-  { id: 'chart-of-accounts', name: 'Chart of Accounts', cat: 'accounts', desc: 'All account codes & types'   },
-  { id: 'clients',           name: 'Clients',            cat: 'people',   desc: 'Customer records'            },
-  { id: 'vendors',           name: 'Vendors',            cat: 'people',   desc: 'Supplier / vendor records'   },
-  { id: 'items',             name: 'Items',              cat: 'catalog',  desc: 'Products & inventory'        },
-  { id: 'services',          name: 'Services',           cat: 'catalog',  desc: 'Billable service items'      },
-  { id: 'expenses',          name: 'Expenses',           cat: 'money',    desc: 'Business expenses'           },
-  { id: 'income',            name: 'Income',             cat: 'money',    desc: 'Other income records'        },
-  { id: 'invoices',          name: 'Invoices',           cat: 'docs',     desc: 'All issued invoices'         },
-  { id: 'bills',             name: 'Bills',              cat: 'docs',     desc: 'Vendor bills'                },
-  { id: 'credit-notes',      name: 'Credit Notes',       cat: 'docs',     desc: 'Issued credit notes'         },
-  { id: 'invoice-payments',  name: 'Invoice Payments',   cat: 'payments', desc: 'Payments received'           },
-  { id: 'bill-payments',     name: 'Bill Payments',      cat: 'payments', desc: 'Payments made to vendors'    },
-  { id: 'journal-entries',   name: 'Journal Entries',    cat: 'accounts', desc: 'Manual journal entries'      },
+  { id: 'chart-of-accounts', name: 'Chart of Accounts', cat: 'accounts', desc: 'Account codes & types'      },
+  { id: 'clients',           name: 'Clients',            cat: 'people',   desc: 'Customer records'           },
+  { id: 'vendors',           name: 'Vendors',            cat: 'people',   desc: 'Supplier / vendor records'  },
+  { id: 'items',             name: 'Items',              cat: 'catalog',  desc: 'Products & inventory'       },
+  { id: 'services',          name: 'Services',           cat: 'catalog',  desc: 'Billable service items'     },
+  { id: 'expenses',          name: 'Expenses',           cat: 'money',    desc: 'Business expenses'          },
+  { id: 'income',            name: 'Income',             cat: 'money',    desc: 'Other income records'       },
+  { id: 'invoices',          name: 'Invoices',           cat: 'docs',     desc: 'All issued invoices'        },
+  { id: 'bills',             name: 'Bills',              cat: 'docs',     desc: 'Vendor bills'               },
+  { id: 'credit-notes',      name: 'Credit Notes',       cat: 'docs',     desc: 'Issued credit notes'        },
+  { id: 'invoice-payments',  name: 'Invoice Payments',   cat: 'payments', desc: 'Payments received'          },
+  { id: 'bill-payments',     name: 'Bill Payments',      cat: 'payments', desc: 'Payments made to vendors'   },
+  { id: 'journal-entries',   name: 'Journal Entries',    cat: 'accounts', desc: 'Manual journal entries'     },
 ];
+
+function fmtCount(n: number) {
+  return n.toLocaleString();
+}
 
 const Spin = ({ size = 14 }: { size?: number }) => (
   <svg className="ep-spin" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -42,10 +46,23 @@ export default function FetchPage() {
   const navigate        = useNavigate();
   const { workflow = 'excel' } = useParams<{ workflow: string }>();
 
-  const [busy,    setBusy]    = useState<Set<string>>(new Set());
-  const [allBusy, setAllBusy] = useState(false);
-  const [done,    setDone]    = useState<Set<string>>(new Set());
+  const [counts,      setCounts]      = useState<Record<string, number | null> | null>(null);
+  const [countLoading,setCountLoading]= useState(false);
+  const [busy,        setBusy]        = useState<Set<string>>(new Set());
+  const [extracting,  setExtracting]  = useState<Set<string>>(new Set());
+  const [allBusy,     setAllBusy]     = useState(false);
+  const [done,        setDone]        = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+
+  // Load counts when connected
+  useEffect(() => {
+    if (!fbConnected) return;
+    setCountLoading(true);
+    fbGetCounts()
+      .then(c => setCounts(c))
+      .catch(() => {})
+      .finally(() => setCountLoading(false));
+  }, [fbConnected]);
 
   function cancelAll() {
     abortRef.current?.abort();
@@ -54,6 +71,7 @@ export default function FetchPage() {
 
   async function downloadOne(id: string) {
     setBusy(prev => new Set(prev).add(id));
+    setExtracting(prev => new Set(prev).add(id));
     try {
       await fbExportEntity(id);
       setDone(prev => new Set(prev).add(id));
@@ -62,6 +80,7 @@ export default function FetchPage() {
       toast('error', 'Download failed', err.message);
     } finally {
       setBusy(prev => { const s = new Set(prev); s.delete(id); return s; });
+      setExtracting(prev => { const s = new Set(prev); s.delete(id); return s; });
     }
   }
 
@@ -70,15 +89,17 @@ export default function FetchPage() {
     abortRef.current = controller;
     setAllBusy(true);
     setDone(new Set());
+    setExtracting(new Set(MODULES.map(m => m.id)));
     try {
       await fbExportAll(controller.signal);
-      // stagger checkmarks one-by-one for visual feedback
+      setExtracting(new Set());
       for (let i = 0; i < MODULES.length; i++) {
         await new Promise(r => setTimeout(r, 90));
         setDone(prev => new Set(prev).add(MODULES[i].id));
       }
       toast('success', 'All modules downloaded', 'freshbooks_all.xlsx — each module is a separate sheet.');
     } catch (err: any) {
+      setExtracting(new Set());
       if (err.name === 'AbortError') {
         toast('warning', 'Cancelled', 'Download All was cancelled.');
       } else {
@@ -91,6 +112,7 @@ export default function FetchPage() {
   }
 
   const anyBusy = allBusy || busy.size > 0;
+  const doneCount = done.size;
 
   return (
     <div className="fetch-page">
@@ -109,7 +131,11 @@ export default function FetchPage() {
       <div className="card fetch-header">
         <div className="fetch-header__text">
           <h2>Fetch from FreshBooks</h2>
-          <p>{allBusy ? 'Fetching all modules from FreshBooks…' : 'Download current records from any module as an Excel file.'}</p>
+          <p>
+            {allBusy
+              ? `Extracting data… ${doneCount} of ${MODULES.length} modules ready`
+              : 'Download current records from any module as an Excel file.'}
+          </p>
         </div>
         <div className="fetch-header__actions">
           {allBusy && (
@@ -125,72 +151,98 @@ export default function FetchPage() {
             title={!fbConnected ? 'Connect FreshBooks first' : undefined}
           >
             {allBusy
-              ? <><Spin size={15} /> Downloading all…</>
+              ? <><Spin size={15} /> Extracting…</>
               : <><DlIcon /> Download All Modules</>
             }
           </button>
         </div>
 
-        {/* sweeping progress bar */}
+        {/* progress bar */}
         {allBusy && (
           <div className="fetch-bar">
+            <div
+              className="fetch-bar__fill"
+              style={{ width: `${Math.max(4, Math.round(doneCount / MODULES.length * 100))}%` }}
+            />
             <div className="fetch-bar__sweep" />
           </div>
         )}
       </div>
 
-      {/* ── info strip ── */}
-      {!allBusy && (
-        <div className="fetch-info">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <span><b>Download All</b> creates one Excel file with 13 sheets — one per module. Individual buttons save a separate file each.</span>
-        </div>
-      )}
-
       {/* ── module grid ── */}
       <div className="fetch-grid">
         {MODULES.map((mod, idx) => {
-          const isBusy   = busy.has(mod.id);
-          const isDone   = done.has(mod.id);
-          const isActive = isBusy || (allBusy && !isDone);
+          const isBusy      = busy.has(mod.id);
+          const isDone      = done.has(mod.id);
+          const isExtracting = extracting.has(mod.id) && !isDone;
+          const count       = counts?.[mod.id];
+
+          let cardCls = 'card fetch-card';
+          if (isDone)        cardCls += ' fetch-card--done';
+          else if (isExtracting) cardCls += ' fetch-card--extracting';
+
           return (
             <div
               key={mod.id}
-              className={`card fetch-card${isActive ? ' fetch-card--active' : ''}${isDone ? ' fetch-card--done' : ''}`}
-              style={isActive && allBusy ? { animationDelay: `${(idx % 4) * 0.15}s` } : undefined}
+              className={cardCls}
+              style={isExtracting ? { animationDelay: `${(idx % 4) * 0.12}s` } : undefined}
             >
+              {/* scan line overlay while extracting */}
+              {isExtracting && <div className="fetch-scan" />}
+
               <div className="fetch-card__top">
                 <CatIcon cat={mod.cat} size={36} />
                 <div className="fetch-card__meta">
                   <span className="fetch-card__name">{mod.name}</span>
                   <span className="fetch-card__desc">{mod.desc}</span>
                 </div>
-                {isDone && (
+                {isDone ? (
                   <div className="fetch-card__check-wrap">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
                   </div>
-                )}
+                ) : isExtracting ? (
+                  <div className="fetch-card__extract-badge">
+                    <Spin size={12} />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* count row */}
+              <div className="fetch-card__count-row">
+                {isDone ? (
+                  <span className="fetch-count fetch-count--done">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Downloaded
+                  </span>
+                ) : isExtracting ? (
+                  <span className="fetch-count fetch-count--extracting">
+                    <span className="fetch-dots"><span /><span /><span /></span>
+                    Extracting data
+                  </span>
+                ) : countLoading ? (
+                  <span className="fetch-count-skel" />
+                ) : count != null ? (
+                  <span className="fetch-count">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    {fmtCount(count)} records
+                  </span>
+                ) : null}
               </div>
 
               <button
-                className={`btn btn--ghost btn--block fetch-card__btn${isActive ? ' fetch-card__btn--loading' : ''}`}
+                className={`btn btn--ghost btn--block fetch-card__btn${isExtracting ? ' fetch-card__btn--loading' : ''}${isDone ? ' fetch-card__btn--done' : ''}`}
                 onClick={() => downloadOne(mod.id)}
                 disabled={isBusy || anyBusy || !fbConnected}
                 title={!fbConnected ? 'Connect FreshBooks first' : undefined}
               >
                 {isBusy
                   ? <><Spin /> Fetching…</>
-                  : isActive
-                    ? <><Spin /> Queued…</>
+                  : isExtracting
+                    ? <><Spin /> Extracting…</>
                     : isDone
-                      ? <>
-                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                          Downloaded
-                        </>
+                      ? <><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Re-download</>
                       : <><DlIcon /> Download</>
                 }
               </button>

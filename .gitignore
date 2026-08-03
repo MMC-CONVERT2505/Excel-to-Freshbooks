@@ -1,6 +1,7 @@
 # Secrets & keys
 .env
 *.pem
+ADMIN_CREDENTIALS.txt
 
 # OS / editor temp files
 ~$*
