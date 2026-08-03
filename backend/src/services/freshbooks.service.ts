@@ -371,8 +371,6 @@ export async function getLedgerAccounts() {
       { headers: authHeader(token.accessToken) }
     );
     const data = res.data;
-    if (page === 1) console.log('[COA] ledger_accounts raw keys:', Object.keys(data || {}));
-    // FreshBooks new-API endpoints return snake_case top-level key
     const batch = data?.ledger_accounts || data?.accounts || data?.ledgerAccounts || data?.response?.result?.accounts || [];
     allAccounts.push(...batch);
     const total = data?.total ?? data?.meta?.total ?? 0;
@@ -1497,8 +1495,8 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'bill-payments':     { getAll: getBillPayments,    extractRecords: d => d.response?.result?.bill_payments || [],   deleteOne: deleteBillPayment,   updateOne: updateBillPayment },
   'journal-entries':   { getAll: getJournalEntries,  extractRecords: d => d.manualJournalEntries || [],              deleteOne: deleteJournalEntry,  updateOne: updateJournalEntry, stringId: true },
   'chart-of-accounts': {
-    getAll: getLedgerAccounts,
-    extractRecords: (d: any) => d?.accounts || [],
+    getAll: getChartOfAccounts,
+    extractRecords: (d: any) => d?.response?.result?.journal_entry_accounts || [],
     deleteOne: deleteChartOfAccount,
     updateOne: updateChartOfAccount,
   },
@@ -1520,7 +1518,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   },
   'recurring-invoices': {
     getAll: getRecurringInvoices,
-    extractRecords: (d: any) => d.response?.result?.recurring_profiles || [],
+    extractRecords: (d: any) => d.response?.result?.invoice_profiles || [],
     deleteOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be updated via this API'), { statusCode: 400 }); },
   },
@@ -1583,9 +1581,9 @@ export async function getAllEntityCounts(): Promise<Record<string, number | null
     { id: 'bill-payments',    url: `${BASE}/accounting/account/${acctId}/bill_payments/bill_payments?per_page=1`,   extract: d => d?.response?.result?.total ?? null },
     { id: 'services',         url: `${BASE}/comments/business/${bizId}/services?per_page=1`,                        extract: d => d?.response?.result?.total ?? null },
     { id: 'journal-entries',    url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?per_page=1`,           extract: d => d?.total ?? null },
-    { id: 'chart-of-accounts',  url: `${BASE}/accounting/businesses/${bizUuid}/ledger_accounts/accounts?per_page=1`, extract: d => d?.total ?? d?.meta?.total ?? null },
+    { id: 'chart-of-accounts',  url: `${BASE}/accounting/businesses/${bizUuid}/reports/chart_of_accounts?use_ledger_entries=true`, extract: d => d?.response?.result?.journal_entry_accounts?.length ?? null },
     { id: 'estimates',          url: `${BASE}/accounting/account/${acctId}/estimates/estimates?per_page=1`,           extract: d => d?.response?.result?.total ?? null },
-    { id: 'recurring-invoices', url: `${BASE}/accounting/account/${acctId}/invoices/recurring_profiles?per_page=1`,  extract: d => d?.response?.result?.total ?? null },
+    { id: 'recurring-invoices', url: `${BASE}/accounting/account/${acctId}/invoice_profiles/invoice_profiles?per_page=1`, extract: d => d?.response?.result?.total ?? null },
   ];
 
   const counts: Record<string, number | null> = {};
@@ -1720,19 +1718,15 @@ export async function getRecurringInvoices() {
   let page = 1, pages = 1;
   do {
     const res = await axios.get(
-      `${BASE}/accounting/account/${accountId()}/invoices/recurring_profiles?page=${page}&per_page=100`,
+      `${BASE}/accounting/account/${accountId()}/invoice_profiles/invoice_profiles?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
-    const data = res.data;
-    if (page === 1) console.log('[RecurringInvoices] raw keys:', Object.keys(data || {}), '| result keys:', Object.keys(data?.response?.result || {}));
-    const result = data?.response?.result;
-    // Key may be recurring_profiles, recurringprofiles, or profiles
-    const batch = result?.recurring_profiles || result?.recurringprofiles || result?.profiles || [];
-    allProfiles.push(...batch);
+    const result = res.data?.response?.result;
+    allProfiles.push(...(result?.invoice_profiles || []));
     pages = result?.pages || 1;
     page++;
   } while (page <= pages);
-  return { response: { result: { recurring_profiles: allProfiles, total: allProfiles.length } } };
+  return { response: { result: { invoice_profiles: allProfiles, total: allProfiles.length } } };
 }
 
 export async function getEstimates() {
