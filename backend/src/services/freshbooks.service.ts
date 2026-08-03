@@ -1549,6 +1549,55 @@ export async function exportEntityExcel(entityId: string): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+export async function exportAllExcel(): Promise<Buffer> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const ORDER = [
+    'chart-of-accounts', 'clients', 'vendors', 'items', 'services',
+    'expenses', 'income', 'invoices', 'bills', 'credit-notes',
+    'invoice-payments', 'bill-payments', 'journal-entries',
+  ];
+
+  const wb = XLSX.utils.book_new();
+
+  for (const entityId of ORDER) {
+    const cfg = ENTITY_CFG[entityId];
+    if (!cfg) continue;
+    const sheetName = entityId.replace(/-/g, '_');
+    try {
+      const data    = await cfg.getAll();
+      const records = cfg.extractRecords(data);
+
+      if (records.length === 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['id', '(no records found)']]), sheetName);
+        continue;
+      }
+
+      const flatRows = records.map((r: any) => flattenObject(r));
+      const allKeys  = [...new Set(flatRows.flatMap((r: any) => Object.keys(r)))] as string[];
+      const keys     = ['id', ...allKeys.filter(k => k !== 'id').sort()];
+      const rows     = flatRows.map((r: any) => {
+        const row: Record<string, any> = {};
+        for (const k of keys) row[k] = r[k] ?? '';
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    } catch (err: any) {
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet([['error', err?.message || String(err)]]),
+        sheetName,
+      );
+    }
+  }
+
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 export async function deleteEntityById(entityId: string, recordId: string): Promise<any> {
   const cfg = ENTITY_CFG[entityId];
   if (!cfg) throw Object.assign(new Error(`Unknown entity: ${entityId}`), { statusCode: 400 });

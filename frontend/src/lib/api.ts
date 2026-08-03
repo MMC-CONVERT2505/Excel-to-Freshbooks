@@ -219,6 +219,27 @@ export async function fbExportEntity(entity: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export async function fbExportAll(): Promise<void> {
+  const sessionId = getSessionId();
+  const appToken  = getAppToken();
+  const res = await fetch(`${API_BASE}/freshbooks/export-all`, {
+    headers: {
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`;
+    try { const b = await res.json(); message = b?.message || b?.error || message; } catch {}
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'freshbooks_all.xlsx' });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function fbDeleteById(entity: string, id: string): Promise<any> {
   return api(`/freshbooks/record/${entity}/${id}`, { method: 'DELETE' });
 }

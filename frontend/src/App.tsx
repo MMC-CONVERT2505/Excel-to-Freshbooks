@@ -18,6 +18,7 @@ import EntityPage from './pages/EntityPage';
 import WavePage from './pages/WavePage';
 import HistoryPage from './pages/HistoryPage';
 import EstimateLinesPage from './pages/EstimateLinesPage';
+import FetchPage from './pages/FetchPage';
 
 function AuthCheck({ children }: { children: React.ReactNode }) {
   const { checkingAuth } = useApp();
@@ -123,6 +124,7 @@ export default function App() {
         <Route path="/:workflow/wave/:waveId"     element={<RequireAuth><AppLayout><WavePage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/history"            element={<RequireAuth><AppLayout><HistoryPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/estimate-items"    element={<RequireAuth><AppLayout><EstimateLinesPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/fetch"             element={<RequireAuth><AppLayout><FetchPage /></AppLayout></RequireAuth>} />
         <Route path="*"               element={<Navigate to="/" replace />} />
       </Routes>
     </AuthCheck>

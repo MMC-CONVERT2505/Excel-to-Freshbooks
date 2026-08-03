@@ -20,7 +20,7 @@ import {
   getProjects,
   deleteEntityById, bulkDeleteEntity,
   updateEntityById, bulkUpdateEntity,
-  exportEntityExcel,
+  exportEntityExcel, exportAllExcel,
   runWithToken,
 } from '../services/freshbooks.service.js';
 
@@ -171,6 +171,13 @@ export const exportEntity = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
   const buffer = await ws(req, () => exportEntityExcel(entityId));
   res.setHeader('Content-Disposition', `attachment; filename="freshbooks_${entityId}.xlsx"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+});
+
+export const exportAll = wrap(async (req: Request, res: Response) => {
+  const buffer = await ws(req, () => exportAllExcel());
+  res.setHeader('Content-Disposition', 'attachment; filename="freshbooks_all.xlsx"');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buffer);
 });

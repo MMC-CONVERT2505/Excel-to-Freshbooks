@@ -20,7 +20,7 @@ import {
   listProjects,
   runDeleteById, runBulkDelete,
   runUpdateById, runBulkUpdate,
-  exportEntity,
+  exportEntity, exportAll,
 } from '../controllers/freshbooks.controller.js';
 
 const router = Router();
@@ -58,6 +58,7 @@ router.get('/credit-memos', listCreditMemos);
 router.get('/projects', listProjects);
 
 // Entity-level export / delete / update
+router.get('/export-all', exportAll);
 router.get('/export/:entity', exportEntity);
 router.delete('/record/:entity/:id', runDeleteById);
 router.post('/record/bulk-delete/:entity', runBulkDelete);
