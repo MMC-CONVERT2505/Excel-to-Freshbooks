@@ -745,7 +745,7 @@ export async function getIncome() {
       { headers: authHeader(token.accessToken) }
     );
     const result = res.data?.response?.result;
-    allIncome.push(...(result?.other_incomes || []));
+    allIncome.push(...(result?.other_income || result?.other_incomes || []));
     const total = result?.total ?? 0;
     pages = result?.pages || (total > 0 ? Math.ceil(total / 100) : 1);
     page++;
@@ -1579,8 +1579,8 @@ export async function getAllEntityCounts(): Promise<Record<string, number | null
     { id: 'credit-notes',     url: `${BASE}/accounting/account/${acctId}/credit_notes/credit_notes?per_page=1`,     extract: d => d?.response?.result?.total ?? null },
     { id: 'invoice-payments', url: `${BASE}/accounting/account/${acctId}/payments/payments?per_page=1`,             extract: d => d?.response?.result?.total ?? null },
     { id: 'bill-payments',    url: `${BASE}/accounting/account/${acctId}/bill_payments/bill_payments?per_page=1`,   extract: d => d?.response?.result?.total ?? null },
-    { id: 'services',         url: `${BASE}/comments/business/${bizId}/services?per_page=1`,                        extract: d => d?.response?.result?.total ?? null },
-    { id: 'journal-entries',    url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?per_page=1`,           extract: d => d?.total ?? null },
+    { id: 'services',         url: `${BASE}/comments/business/${bizId}/services?per_page=1`,                        extract: d => d?.meta?.total ?? null },
+    { id: 'journal-entries',    url: `${BASE}/accounting/businesses/${bizUuid}/journal_entries?page_size=1`,          extract: d => d?.page?.total ?? null },
     { id: 'chart-of-accounts',  url: `${BASE}/accounting/businesses/${bizUuid}/reports/chart_of_accounts?use_ledger_entries=true`, extract: d => d?.response?.result?.journal_entry_accounts?.length ?? null },
     { id: 'estimates',          url: `${BASE}/accounting/account/${acctId}/estimates/estimates?per_page=1`,           extract: d => d?.response?.result?.total ?? null },
     { id: 'recurring-invoices', url: `${BASE}/accounting/account/${acctId}/invoice_profiles/invoice_profiles?per_page=1`, extract: d => d?.response?.result?.total ?? null },
