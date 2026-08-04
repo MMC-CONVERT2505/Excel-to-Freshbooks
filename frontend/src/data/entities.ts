@@ -110,6 +110,7 @@ export const TEMPLATES: Record<string, TplCol[]> = {
     { col:'bus_phone',     req:false, ds:'Business phone', ex:'555-0142' },
     { col:'mob_phone',     req:false, ds:'Mobile phone', ex:'555-0199' },
     { col:'p_street',      req:false, ds:'Street address line 1', ex:'12 Main St' },
+    { col:'p_street2',     req:false, ds:'Street address line 2 (suite, apt, etc.)', ex:'Suite 100' },
     { col:'p_city',        req:false, ds:'City', ex:'New York' },
     { col:'p_province',    req:false, ds:'State / Province', ex:'NY' },
     { col:'p_code',        req:false, ds:'ZIP / Postal code', ex:'10001' },
