@@ -344,10 +344,22 @@ export async function deleteItem(itemId: number) {
 export async function getChartOfAccounts() {
   const token = await getToken();
   const res = await axios.get(
-    `${BASE}/accounting/businesses/${businessUuid()}/reports/chart_of_accounts?user_ledger_entries=true`,
+    `${BASE}/accounting/businesses/${businessUuid()}/reports/chart_of_accounts?use_ledger_entries=true`,
     { headers: authHeader(token.accessToken) }
   );
   return res.data;
+}
+
+function flattenCoaTree(accounts: any[], parentName = ''): any[] {
+  const rows: any[] = [];
+  for (const a of accounts || []) {
+    const { sub_accounts, ...rest } = a;
+    rows.push({ ...rest, parent_account_name: parentName });
+    if (Array.isArray(sub_accounts) && sub_accounts.length > 0) {
+      rows.push(...flattenCoaTree(sub_accounts, a.account_name || ''));
+    }
+  }
+  return rows;
 }
 
 export async function createChartOfAccount(body: Record<string, any>) {
@@ -467,8 +479,9 @@ export async function exportExpensesExcel(): Promise<Buffer> {
   const require = createRequire(import.meta.url);
   const XLSX = require('xlsx');
 
-  const data = await getExpenses();
-  const expenses: any[] = data?.response?.result?.expenses || [];
+  const [data, catData] = await Promise.all([getExpenses(), getExpenseCategories()]);
+  const expenses: any[]   = data?.response?.result?.expenses || [];
+  const categories: any[] = catData?.response?.result?.categories || [];
 
   if (expenses.length === 0) {
     const wb = XLSX.utils.book_new();
@@ -476,11 +489,19 @@ export async function exportExpensesExcel(): Promise<Buffer> {
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   }
 
-  // Flatten all expenses and collect every unique key across all records
-  const flatRows = expenses.map(e => flattenObject(e));
-  const allKeys = [...new Set(flatRows.flatMap(r => Object.keys(r)))].sort();
+  const catMap: Record<number, string> = {};
+  for (const c of categories) catMap[c.id] = c.name || '';
 
-  // Build rows with all keys in A-Z order
+  // Flatten expenses and inject category_name
+  const flatRows = expenses.map(e => {
+    const flat = flattenObject(e);
+    flat.category_name = catMap[e.categoryid] || e.category?.name || '';
+    return flat;
+  });
+  const allKeys = ['id', 'category_name', ...new Set(flatRows.flatMap(r => Object.keys(r)).filter(k => k !== 'id' && k !== 'category_name'))].filter(
+    (k, i, a) => a.indexOf(k) === i
+  );
+
   const rows = flatRows.map(r => {
     const row: Record<string, any> = {};
     for (const k of allKeys) row[k] = r[k] ?? '';
@@ -1380,6 +1401,62 @@ async function exportInvoicesExcel(): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// ── RECURRING INVOICES EXPORT (with line items) ───────────────────────────────────────
+async function exportRecurringInvoicesExcel(): Promise<Buffer> {
+  const token = await getToken();
+  const allProfiles: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await axios.get(
+      `${BASE}/accounting/account/${accountId()}/invoice_profiles/invoice_profiles?page=${page}&per_page=100&include[]=lines`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allProfiles.push(...(result?.invoice_profiles || []));
+    pages = result?.pages || 1;
+    page++;
+  } while (page <= pages);
+
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  if (allProfiles.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['id', '(no records found)']]), 'recurring_invoices');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows: Record<string, any>[] = [];
+  for (const prof of allProfiles) {
+    const lines: any[] = Array.isArray(prof.lines) && prof.lines.length > 0 ? prof.lines : [{}];
+    for (const line of lines) {
+      rows.push({
+        freshbooks_id:    prof.id ?? '',
+        profileid:        prof.profileid ?? '',
+        customer_id:      prof.customerid ?? '',
+        frequency:        prof.frequency ?? '',
+        create_date:      prof.create_date ?? '',
+        currency_code:    prof.currency_code ?? '',
+        autobill:         prof.autobill ?? '',
+        send_email:       prof.send_email ?? '',
+        line_name:        line.name ?? '',
+        line_description: line.description ?? '',
+        line_qty:         line.qty ?? '',
+        line_unit_cost:   line.unit_cost?.amount ?? '',
+        tax_name1:        line.taxName1 ?? '',
+        tax_amount1:      line.taxAmount1 ?? '',
+      });
+    }
+  }
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'recurring_invoices');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
 // ── ITEMS BULK UPDATE ────────────────────────────────────────────────────────────────
 async function bulkUpdateItems(rows: Array<Record<string, any>>): Promise<{ updated: number; failed: number; errors: string[] }> {
   // Build integer-ID, UUID, and name maps for income_account_number lookup
@@ -1496,7 +1573,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'journal-entries':   { getAll: getJournalEntries,  extractRecords: d => d.manualJournalEntries || [],              deleteOne: deleteJournalEntry,  updateOne: updateJournalEntry, stringId: true },
   'chart-of-accounts': {
     getAll: getChartOfAccounts,
-    extractRecords: (d: any) => d?.response?.result?.journal_entry_accounts || [],
+    extractRecords: (d: any) => flattenCoaTree(d?.response?.result?.journal_entry_accounts || []),
     deleteOne: deleteChartOfAccount,
     updateOne: updateChartOfAccount,
   },
@@ -1519,6 +1596,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'recurring-invoices': {
     getAll: getRecurringInvoices,
     extractRecords: (d: any) => d.response?.result?.invoice_profiles || [],
+    exportFn: exportRecurringInvoicesExcel,
     deleteOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async () => { throw Object.assign(new Error('Recurring invoices cannot be updated via this API'), { statusCode: 400 }); },
   },
@@ -1616,6 +1694,16 @@ export async function exportAllExcel(): Promise<Buffer> {
     if (!cfg) continue;
     const sheetName = entityId.replace(/-/g, '_');
     try {
+      // Entities with a custom exportFn (invoices, expenses, etc.) produce
+      // better output (expanded rows, joined fields). Re-use that buffer.
+      if (cfg.exportFn) {
+        const buf    = await cfg.exportFn();
+        const tmpWb  = XLSX.read(buf, { type: 'buffer' });
+        const sheet  = tmpWb.Sheets[tmpWb.SheetNames[0]];
+        XLSX.utils.book_append_sheet(wb, sheet, sheetName);
+        continue;
+      }
+
       const data    = await cfg.getAll();
       const records = cfg.extractRecords(data);
 
