@@ -446,7 +446,7 @@ export async function getExpenses() {
   let page = 1, pages = 1;
   do {
     const res = await axios.get(
-      `${BASE}/accounting/account/${accountId()}/expenses/expenses?page=${page}&per_page=100`,
+      `${BASE}/accounting/account/${accountId()}/expenses/expenses?page=${page}&per_page=100&include[]=category`,
       { headers: authHeader(token.accessToken) }
     );
     const result = res.data?.response?.result;
@@ -489,13 +489,20 @@ export async function exportExpensesExcel(): Promise<Buffer> {
     return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   }
 
+  // Build categoryid→name map from categories list as fallback
   const catMap: Record<number, string> = {};
-  for (const c of categories) catMap[c.id] = c.name || '';
+  for (const c of categories) {
+    const cid = c.id ?? c.categoryid;
+    const cname = c.name ?? c.category_name ?? '';
+    if (cid) catMap[Number(cid)] = cname;
+  }
 
-  // Flatten expenses and inject category_name
+  // Flatten expenses; category_name comes from embedded category object (include[]=category)
+  // with catMap as fallback
   const flatRows = expenses.map(e => {
     const flat = flattenObject(e);
-    flat.category_name = catMap[e.categoryid] || e.category?.name || '';
+    // e.category is the embedded object from include[]=category; its name field is the category name
+    flat.category_name = e.category?.name ?? e.category?.category_name ?? catMap[e.categoryid] ?? '';
     return flat;
   });
   const allKeys = ['id', 'category_name', ...new Set(flatRows.flatMap(r => Object.keys(r)).filter(k => k !== 'id' && k !== 'category_name'))].filter(
@@ -1434,18 +1441,28 @@ async function exportRecurringInvoicesExcel(): Promise<Buffer> {
       rows.push({
         freshbooks_id:    prof.id ?? '',
         profileid:        prof.profileid ?? '',
+        profile_code:     prof.code ?? '',
         customer_id:      prof.customerid ?? '',
+        customer_name:    prof.organization || `${prof.fname || ''} ${prof.lname || ''}`.trim() || '',
         frequency:        prof.frequency ?? '',
         create_date:      prof.create_date ?? '',
+        due_offset_days:  prof.due_offset_days ?? '',
         currency_code:    prof.currency_code ?? '',
-        autobill:         prof.autobill ?? '',
+        total_amount:     prof.amount?.amount ?? '',
+        description:      prof.description ?? '',
+        po_number:        prof.po_number ?? '',
+        notes:            prof.notes ?? '',
         send_email:       prof.send_email ?? '',
+        auto_bill:        prof.autobill ?? prof.auto_bill ?? '',
+        language:         prof.language ?? '',
         line_name:        line.name ?? '',
         line_description: line.description ?? '',
         line_qty:         line.qty ?? '',
         line_unit_cost:   line.unit_cost?.amount ?? '',
         tax_name1:        line.taxName1 ?? '',
         tax_amount1:      line.taxAmount1 ?? '',
+        tax_name2:        line.taxName2 ?? '',
+        tax_amount2:      line.taxAmount2 ?? '',
       });
     }
   }
