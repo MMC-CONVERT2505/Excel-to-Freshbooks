@@ -408,7 +408,7 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
   return runMigration('clients', rows, async (row) => {
     const org = row.organization?.trim() || '';
     if (!org) throw new Error('organization is required');
-    await createClient({
+    const payload = {
       fname:        row.fname?.trim() || undefined,
       lname:        row.lname?.trim() || undefined,
       email:        row.email?.trim() || undefined,
@@ -424,7 +424,25 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
       p_code:        row.p_code,
       p_country:     row.p_country,
       note:          row.note,
-    });
+    };
+    try {
+      await createClient(payload);
+    } catch (err: any) {
+      // FreshBooks derives username from email; if another client already has that
+      // username we retry without the email so this org still gets created.
+      const fbErrors: any[] = err?.response?.data?.response?.errors || [];
+      const isUsernameTaken = fbErrors.some((e: any) =>
+        typeof e.message === 'string' &&
+        e.message.toLowerCase().includes('username') &&
+        e.message.toLowerCase().includes('already exists')
+      );
+      if (isUsernameTaken) {
+        console.log(`[CLIENTS] Username conflict for "${org}" — retrying without email`);
+        await createClient({ ...payload, email: undefined });
+      } else {
+        throw err;
+      }
+    }
   },
   (row) => row.organization?.trim() || `${row.fname || ''} ${row.lname || ''}`.trim() || row.email || '(blank)',
   (row) => existingKeys.has(`${row.fname || ''}|${row.lname || ''}|${row.organization || ''}`.toLowerCase())
