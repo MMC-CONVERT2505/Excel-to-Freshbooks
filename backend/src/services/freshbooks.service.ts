@@ -4,6 +4,31 @@ import prisma from '../lib/prisma.js';
 
 const BASE = 'https://api.freshbooks.com';
 
+// ── Global FreshBooks rate limiter ───────────────────────────────────────────
+// Token bucket: 200 tokens/min (FreshBooks hard limit is 250/min; we leave 50 headroom).
+// All outbound FreshBooks API calls go through fbAxios so this covers every entity
+// running in parallel — total throughput stays under the account-wide cap.
+const _fbRl = (() => {
+  const MAX  = 200;
+  const RATE = MAX / 60_000; // tokens per ms
+  let tokens = MAX;
+  let lastMs  = Date.now();
+  return {
+    async acquire() {
+      for (;;) {
+        const now = Date.now();
+        tokens = Math.min(MAX, tokens + (now - lastMs) * RATE);
+        lastMs  = now;
+        if (tokens >= 1) { tokens -= 1; return; }
+        await new Promise<void>(r => setTimeout(r, Math.ceil((1 - tokens) / RATE)));
+      }
+    },
+  };
+})();
+
+const fbAxios = axios.create();
+fbAxios.interceptors.request.use(async config => { await _fbRl.acquire(); return config; });
+
 // ── Per-request session context ─────────────────────────────────────────────
 // Each migration runs inside runWithToken(), which stores the session's account
 // details in AsyncLocalStorage. This prevents concurrent users from overwriting
@@ -95,7 +120,7 @@ async function getToken() {
 }
 
 async function refreshToken(token: any) {
-  const response = await axios.post('https://api.freshbooks.com/auth/oauth/token', {
+  const response = await fbAxios.post('https://api.freshbooks.com/auth/oauth/token', {
     grant_type:    'refresh_token',
     client_id:     process.env.FRESHBOOKS_CLIENT_ID,
     client_secret: process.env.FRESHBOOKS_CLIENT_SECRET,
@@ -161,7 +186,7 @@ export async function getFreshbooksToken() {
 
 export async function getFreshBooksIdentity() {
   const token = await getToken();
-  const res = await axios.get(`${BASE}/auth/api/v1/users/me`, {
+  const res = await fbAxios.get(`${BASE}/auth/api/v1/users/me`, {
     headers: authHeader(token.accessToken),
   });
   return res.data;
@@ -173,7 +198,7 @@ export async function getClients() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/users/clients?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -188,7 +213,7 @@ export async function getClients() {
 
 export async function createClient(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/users/clients`,
     { client: body },
     { headers: authHeader(token.accessToken) }
@@ -202,7 +227,7 @@ export async function createClient(body: Record<string, any>) {
 //   currency_code, language, note, vat_number, company_industry, company_size
 export async function updateClient(clientId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/users/clients/${clientId}`,
     { client: body },
     { headers: authHeader(token.accessToken) }
@@ -221,7 +246,7 @@ export async function getInvoices() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/invoices/invoices?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -238,7 +263,7 @@ export async function getInvoices() {
 export async function searchInvoiceByNumber(invoiceNumber: string): Promise<any | null> {
   const token = await getToken();
   try {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/invoices/invoices?search[invoice_number]=${encodeURIComponent(invoiceNumber)}&per_page=10`,
       { headers: authHeader(token.accessToken) }
     );
@@ -251,7 +276,7 @@ export async function searchInvoiceByNumber(invoiceNumber: string): Promise<any 
 
 export async function createInvoice(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/invoices/invoices`,
     { invoice: body },
     { headers: authHeader(token.accessToken) }
@@ -267,7 +292,7 @@ export async function createInvoice(body: Record<string, any>) {
 // Action params: action_mark_as_sent, action_email
 export async function updateInvoice(invoiceId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/invoices/invoices/${invoiceId}`,
     { invoice: body },
     { headers: authHeader(token.accessToken) }
@@ -286,7 +311,7 @@ export async function getItems() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/items/items?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -304,7 +329,7 @@ export async function getArchivedItems() {
   const token = await getToken();
   // Try both FreshBooks filter formats for archived items
   for (const params of ['search[vis_state]=1', 'vis_state=1', 'search[vis_state]=99']) {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/items/items?${params}`,
       { headers: authHeader(token.accessToken) }
     );
@@ -319,7 +344,7 @@ export async function getArchivedItems() {
 // Updatable: name, description, unit_cost, tax1, tax2, inventory, vis_state
 export async function updateItem(itemId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/items/items/${itemId}`,
     { item: body },
     { headers: authHeader(token.accessToken) }
@@ -329,7 +354,7 @@ export async function updateItem(itemId: number, body: Record<string, any>) {
 
 export async function createItem(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/items/items`,
     { item: body },
     { headers: authHeader(token.accessToken) }
@@ -343,7 +368,7 @@ export async function deleteItem(itemId: number) {
 
 export async function getChartOfAccounts() {
   const token = await getToken();
-  const res = await axios.get(
+  const res = await fbAxios.get(
     `${BASE}/accounting/businesses/${businessUuid()}/reports/chart_of_accounts?use_ledger_entries=true`,
     { headers: authHeader(token.accessToken) }
   );
@@ -364,7 +389,7 @@ function flattenCoaTree(accounts: any[], parentName = ''): any[] {
 
 export async function createChartOfAccount(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/businesses/${businessUuid()}/ledger_accounts/accounts`,
     body,
     { headers: authHeader(token.accessToken) }
@@ -378,7 +403,7 @@ export async function getLedgerAccounts() {
   const allAccounts: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/businesses/${businessUuid()}/ledger_accounts/accounts?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -397,7 +422,7 @@ export async function getLedgerAccounts() {
 //   currency_code, description, is_contractor, parent_id
 export async function updateChartOfAccount(ledgerAccountId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/businesses/${businessUuid()}/ledger_accounts/accounts/${ledgerAccountId}`,
     body,
     { headers: authHeader(token.accessToken) }
@@ -412,7 +437,7 @@ export async function deleteChartOfAccount(ledgerAccountId: number) {
 
 export async function createAccountGroup(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/businesses/${businessUuid()}/ledger_accounts/accounts`,
     { ...body, parent_account: null },
     { headers: authHeader(token.accessToken) }
@@ -427,7 +452,7 @@ export async function getExpenseCategories() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/expenses/categories?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -445,7 +470,7 @@ export async function getExpenses() {
   const allExpenses: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/expenses/expenses?page=${page}&per_page=100&include[]=category`,
       { headers: authHeader(token.accessToken) }
     );
@@ -523,7 +548,7 @@ export async function exportExpensesExcel(): Promise<Buffer> {
 
 export async function createExpense(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/expenses/expenses`,
     { expense: body },
     { headers: authHeader(token.accessToken) }
@@ -538,7 +563,7 @@ export async function createExpense(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updateExpense(expenseId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/expenses/expenses/${expenseId}`,
     { expense: body },
     { headers: authHeader(token.accessToken) }
@@ -552,7 +577,7 @@ export async function deleteExpense(expenseId: number) {
 
 export async function createPayment(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/payments/payments`,
     { payment: body },
     { headers: authHeader(token.accessToken) }
@@ -565,7 +590,7 @@ export async function createPayment(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updatePayment(paymentId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/payments/payments/${paymentId}`,
     { payment: body },
     { headers: authHeader(token.accessToken) }
@@ -583,7 +608,7 @@ export async function getVendors() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/bill_vendors/bill_vendors?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -598,7 +623,7 @@ export async function getVendors() {
 
 export async function createVendor(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/bill_vendors/bill_vendors`,
     { bill_vendor: body },
     { headers: authHeader(token.accessToken) }
@@ -614,7 +639,7 @@ export async function createVendor(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updateVendor(vendorId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/bill_vendors/bill_vendors/${vendorId}`,
     { bill_vendor: body },
     { headers: authHeader(token.accessToken) }
@@ -632,7 +657,7 @@ export async function getBills() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/bills/bills?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -647,7 +672,7 @@ export async function getBills() {
 
 export async function createBills(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/bills/bills`,
     { bill: body },
     { headers: authHeader(token.accessToken) }
@@ -661,7 +686,7 @@ export async function createBills(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted, vis_state 2 = archived
 export async function updateBill(billId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/bills/bills/${billId}`,
     { bill: body },
     { headers: authHeader(token.accessToken) }
@@ -682,7 +707,7 @@ export async function getServices() {
   const allServices: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/comments/business/${businessId()}/services?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -697,7 +722,7 @@ export async function getServices() {
 
 export async function createService(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(`${BASE}/comments/business/${businessId()}/service`, { service: body }, { headers: authHeader(token.accessToken) });
+  const res = await fbAxios.post(`${BASE}/comments/business/${businessId()}/service`, { service: body }, { headers: authHeader(token.accessToken) });
   return res.data;
 }
 
@@ -705,7 +730,7 @@ export async function createService(body: Record<string, any>) {
 // Updatable: name, billable, etc. (NOT income account — use updateTask for that)
 export async function updateService(serviceId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/comments/business/${businessId()}/service/${serviceId}`,
     { service: body },
     { headers: authHeader(token.accessToken) }
@@ -719,7 +744,7 @@ export async function getTasks() {
   const allTasks: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/projects/tasks?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -735,7 +760,7 @@ export async function getTasks() {
 // field: account_uuid = income account UUID
 export async function updateTask(taskId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/projects/tasks/${taskId}`,
     { task: body },
     { headers: authHeader(token.accessToken) }
@@ -749,7 +774,7 @@ export async function updateServiceRate(serviceId: number, rate: string, incomeA
   const token = await getToken();
   const body: Record<string, any> = { rate };
   if (incomeAccountId) body.income_account_id = incomeAccountId;
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/comments/business/${businessId()}/service/${serviceId}/rate`,
     { service_rate: body },
     { headers: authHeader(token.accessToken) }
@@ -759,7 +784,7 @@ export async function updateServiceRate(serviceId: number, rate: string, incomeA
 
 export async function setServiceRate(serviceId: number, rate: string) {
   const token = await getToken();
-  const res = await axios.post(`${BASE}/comments/business/${businessId()}/service/${serviceId}/rate`, { service_rate: { rate } }, { headers: authHeader(token.accessToken) });
+  const res = await fbAxios.post(`${BASE}/comments/business/${businessId()}/service/${serviceId}/rate`, { service_rate: { rate } }, { headers: authHeader(token.accessToken) });
   return res.data;
 }
 
@@ -768,7 +793,7 @@ export async function getIncome() {
   const allIncome: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -783,7 +808,7 @@ export async function getIncome() {
 
 export async function createIncome(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes`,
     { other_income: body },
     { headers: authHeader(token.accessToken) }
@@ -796,7 +821,7 @@ export async function createIncome(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updateIncome(incomeId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes/${incomeId}`,
     { other_income: body },
     { headers: authHeader(token.accessToken) }
@@ -806,7 +831,7 @@ export async function updateIncome(incomeId: number, body: Record<string, any>) 
 
 export async function deleteIncome(incomeId: number) {
   const token = await getToken();
-  const res = await axios.delete(
+  const res = await fbAxios.delete(
     `${BASE}/accounting/account/${accountId()}/other_incomes/other_incomes/${incomeId}`,
     { headers: authHeader(token.accessToken) }
   );
@@ -818,7 +843,7 @@ export async function getCreditNotes() {
   const allNotes: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -833,7 +858,7 @@ export async function getCreditNotes() {
 
 export async function createCreditNote(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes`,
     { credit_note: body },
     { headers: authHeader(token.accessToken) }
@@ -847,7 +872,7 @@ export async function createCreditNote(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updateCreditNote(creditNoteId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes/${creditNoteId}`,
     { credit_note: body },
     { headers: authHeader(token.accessToken) }
@@ -864,7 +889,7 @@ export async function getPayments() {
   const allPayments: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/payments/payments?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -882,7 +907,7 @@ export async function getBillPayments() {
   const allBillPayments: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/bill_payments/bill_payments?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -897,7 +922,7 @@ export async function getBillPayments() {
 
 export async function createBillPayment(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/bill_payments/bill_payments`,
     { bill_payment: body },
     { headers: authHeader(token.accessToken) }
@@ -910,7 +935,7 @@ export async function createBillPayment(body: Record<string, any>) {
 // Soft-delete: vis_state 1 = deleted
 export async function updateBillPayment(billPaymentId: number, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/account/${accountId()}/bill_payments/bill_payments/${billPaymentId}`,
     { bill_payment: body },
     { headers: authHeader(token.accessToken) }
@@ -927,7 +952,7 @@ export async function getJournalEntries() {
   const allEntries: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/businesses/${businessUuid()}/journal_entries?page=${page}&per_page=100`,
       { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
     );
@@ -942,7 +967,7 @@ export async function getJournalEntries() {
 
 export async function createExpenseCategory(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/account/${accountId()}/expenses/categories`,
     { category: body },
     { headers: authHeader(token.accessToken) }
@@ -952,7 +977,7 @@ export async function createExpenseCategory(body: Record<string, any>) {
 
 export async function createJournalEntry(body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.post(
+  const res = await fbAxios.post(
     `${BASE}/accounting/businesses/${businessUuid()}/journal_entries`,
     { manualJournalEntry: body },
     { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
@@ -966,7 +991,7 @@ export async function createJournalEntry(body: Record<string, any>) {
 // No vis_state — use DELETE endpoint to remove
 export async function updateJournalEntry(entryId: string, body: Record<string, any>) {
   const token = await getToken();
-  const res = await axios.put(
+  const res = await fbAxios.put(
     `${BASE}/accounting/businesses/${businessUuid()}/journal_entries/${entryId}`,
     { manualJournalEntry: body },
     { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
@@ -976,7 +1001,7 @@ export async function updateJournalEntry(entryId: string, body: Record<string, a
 
 export async function deleteJournalEntry(entryId: string) {
   const token = await getToken();
-  const res = await axios.delete(
+  const res = await fbAxios.delete(
     `${BASE}/accounting/businesses/${businessUuid()}/journal_entries/${entryId}`,
     { headers: { ...authHeader(token.accessToken), 'x-api-version': '2023-09-25' } }
   );
@@ -1349,7 +1374,7 @@ async function exportInvoicesExcel(): Promise<Buffer> {
   const allInvoices: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/invoices/invoices?page=${page}&per_page=100&include[]=lines`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1414,7 +1439,7 @@ async function exportRecurringInvoicesExcel(): Promise<Buffer> {
   const allProfiles: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/invoice_profiles/invoice_profiles?page=${page}&per_page=100&include[]=lines`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1684,7 +1709,7 @@ export async function getAllEntityCounts(): Promise<Record<string, number | null
   const counts: Record<string, number | null> = {};
   await Promise.allSettled(tasks.map(async ({ id, url, extract }) => {
     try {
-      const res = await axios.get(url, { headers: h });
+      const res = await fbAxios.get(url, { headers: h });
       counts[id] = extract(res.data);
     } catch {
       counts[id] = null;
@@ -1822,7 +1847,7 @@ export async function getRecurringInvoices() {
   const allProfiles: any[] = [];
   let page = 1, pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/invoice_profiles/invoice_profiles?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1840,7 +1865,7 @@ export async function getEstimates() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/estimates/estimates?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1858,7 +1883,7 @@ export async function getEstimateLines() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/estimates/estimates?page=${page}&per_page=100&include[]=lines`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1895,7 +1920,7 @@ export async function getCreditMemos() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/accounting/account/${accountId()}/credit_notes/credit_notes?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
@@ -1913,7 +1938,7 @@ export async function getProjects() {
   let page = 1;
   let pages = 1;
   do {
-    const res = await axios.get(
+    const res = await fbAxios.get(
       `${BASE}/projects/business/${businessId()}/projects?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
