@@ -80,8 +80,8 @@ async function readUploadedRows(entityId: string, tokenId: number | null): Promi
   return sheet.rows as Row[];
 }
 
-const DELAY_MS    = 400;  // ms delay between batches
-const CONCURRENCY = 10;   // parallel workers per batch
+const DELAY_MS    = 200;  // ms delay between batches
+const CONCURRENCY = 25;   // parallel workers per batch
 const MAX_RETRIES = 4;
 
 // In-memory live progress for custom-loop migrations (invoices, bills, etc.) that don't

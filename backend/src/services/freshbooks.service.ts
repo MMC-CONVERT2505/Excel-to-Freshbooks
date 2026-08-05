@@ -4,30 +4,7 @@ import prisma from '../lib/prisma.js';
 
 const BASE = 'https://api.freshbooks.com';
 
-// ── Global FreshBooks rate limiter ───────────────────────────────────────────
-// Token bucket: 200 tokens/min (FreshBooks hard limit is 250/min; we leave 50 headroom).
-// All outbound FreshBooks API calls go through fbAxios so this covers every entity
-// running in parallel — total throughput stays under the account-wide cap.
-const _fbRl = (() => {
-  const MAX  = 200;
-  const RATE = MAX / 60_000; // tokens per ms
-  let tokens = MAX;
-  let lastMs  = Date.now();
-  return {
-    async acquire() {
-      for (;;) {
-        const now = Date.now();
-        tokens = Math.min(MAX, tokens + (now - lastMs) * RATE);
-        lastMs  = now;
-        if (tokens >= 1) { tokens -= 1; return; }
-        await new Promise<void>(r => setTimeout(r, Math.ceil((1 - tokens) / RATE)));
-      }
-    },
-  };
-})();
-
 const fbAxios = axios.create();
-fbAxios.interceptors.request.use(async config => { await _fbRl.acquire(); return config; });
 
 // ── Per-request session context ─────────────────────────────────────────────
 // Each migration runs inside runWithToken(), which stores the session's account
