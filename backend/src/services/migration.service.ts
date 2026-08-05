@@ -402,7 +402,7 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
   const existingRes = await getClients();
   const existingClients: any[] = existingRes?.response?.result?.clients || [];
   const existingKeys = new Set(
-    existingClients.map((c: any) => `${c.fname || ''}|${c.lname || ''}|${c.organization || ''}`.toLowerCase())
+    existingClients.map((c: any) => (c.organization || '').toLowerCase().trim()).filter(Boolean)
   );
 
   return runMigration('clients', rows, async (row) => {
@@ -453,7 +453,7 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
     }
   },
   (row) => row.organization?.trim() || `${row.fname || ''} ${row.lname || ''}`.trim() || row.email || '(blank)',
-  (row) => existingKeys.has(`${row.fname || ''}|${row.lname || ''}|${row.organization || ''}`.toLowerCase())
+  (row) => existingKeys.has((row.organization || '').toLowerCase().trim())
   );
 }
 
