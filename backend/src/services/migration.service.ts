@@ -425,22 +425,40 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
       p_country:     row.p_country,
       note:          row.note,
     };
-    try {
-      await createClient(payload);
-    } catch (err: any) {
-      // FreshBooks derives username from email; if another client already has that
-      // username we retry without the email so this org still gets created.
+    const isUsernameTaken = (err: any) => {
       const fbErrors: any[] = err?.response?.data?.response?.errors || [];
-      const isUsernameTaken = fbErrors.some((e: any) =>
+      return fbErrors.some((e: any) =>
         typeof e.message === 'string' &&
         e.message.toLowerCase().includes('username') &&
         e.message.toLowerCase().includes('already exists')
       );
-      if (isUsernameTaken) {
-        console.log(`[CLIENTS] Username conflict for "${org}" — retrying without email`);
+    };
+    try {
+      await createClient(payload);
+    } catch (err1: any) {
+      if (!isUsernameTaken(err1)) throw err1;
+      // FreshBooks derives username from email prefix; retry without email
+      console.log(`[CLIENTS] Username conflict for "${org}" — retrying without email`);
+      try {
         await createClient({ ...payload, email: undefined });
-      } else {
-        throw err;
+      } catch (err2: any) {
+        if (!isUsernameTaken(err2)) throw err2;
+        // FreshBooks also derives username from fname/lname; strip those too
+        console.log(`[CLIENTS] Username still conflicts for "${org}" — retrying with org/address only`);
+        await createClient({
+          organization:  org,
+          currency_code: payload.currency_code,
+          language:      payload.language,
+          bus_phone:     payload.bus_phone,
+          mob_phone:     payload.mob_phone,
+          p_street:      payload.p_street,
+          p_street2:     payload.p_street2,
+          p_city:        payload.p_city,
+          p_province:    payload.p_province,
+          p_code:        payload.p_code,
+          p_country:     payload.p_country,
+          note:          payload.note,
+        });
       }
     }
   },
