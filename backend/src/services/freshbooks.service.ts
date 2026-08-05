@@ -490,19 +490,19 @@ export async function exportExpensesExcel(): Promise<Buffer> {
   }
 
   // Build categoryid→name map from categories list as fallback
+  // FreshBooks category objects use the field "category" (not "name") for the display name
   const catMap: Record<number, string> = {};
   for (const c of categories) {
     const cid = c.id ?? c.categoryid;
-    const cname = c.name ?? c.category_name ?? '';
+    const cname = c.category ?? c.name ?? c.category_name ?? '';
     if (cid) catMap[Number(cid)] = cname;
   }
 
   // Flatten expenses; category_name comes from embedded category object (include[]=category)
-  // with catMap as fallback
+  // FreshBooks embeds category as { category: "...", categoryid: N, ... } — field is "category" not "name"
   const flatRows = expenses.map(e => {
     const flat = flattenObject(e);
-    // e.category is the embedded object from include[]=category; its name field is the category name
-    flat.category_name = e.category?.name ?? e.category?.category_name ?? catMap[e.categoryid] ?? '';
+    flat.category_name = e.category?.category ?? e.category?.name ?? catMap[e.categoryid] ?? catMap[e.category?.categoryid] ?? '';
     return flat;
   });
   const allKeys = ['id', 'category_name', ...new Set(flatRows.flatMap(r => Object.keys(r)).filter(k => k !== 'id' && k !== 'category_name'))].filter(
