@@ -408,11 +408,11 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
   return runMigration('clients', rows, async (row) => {
     const org = row.organization?.trim() || '';
     if (!org) throw new Error('organization is required');
-    const payload = {
-      fname:        row.fname?.trim() || undefined,
-      lname:        row.lname?.trim() || undefined,
-      email:        row.email?.trim() || undefined,
-      organization: org,
+    const payload: Record<string, any> = {
+      fname:         row.fname?.trim() || undefined,
+      lname:         row.lname?.trim() || undefined,
+      email:         row.email?.trim() || undefined,
+      organization:  org,
       currency_code: row.currency_code || 'USD',
       language:      row.language || 'en',
       bus_phone:     row.bus_phone,
@@ -425,41 +425,31 @@ export async function migrateClients(tokenId: number | null = null): Promise<Mig
       p_country:     row.p_country,
       note:          row.note,
     };
-    const isUsernameTaken = (err: any) => {
-      const fbErrors: any[] = err?.response?.data?.response?.errors || [];
-      return fbErrors.some((e: any) =>
-        typeof e.message === 'string' &&
-        e.message.toLowerCase().includes('username') &&
-        e.message.toLowerCase().includes('already exists')
-      );
-    };
     try {
       await createClient(payload);
-    } catch (err1: any) {
-      if (!isUsernameTaken(err1)) throw err1;
-      // FreshBooks derives username from email prefix; retry without email
-      console.log(`[CLIENTS] Username conflict for "${org}" — retrying without email`);
-      try {
-        await createClient({ ...payload, email: undefined });
-      } catch (err2: any) {
-        if (!isUsernameTaken(err2)) throw err2;
-        // FreshBooks also derives username from fname/lname; strip those too
-        console.log(`[CLIENTS] Username still conflicts for "${org}" — retrying with org/address only`);
-        await createClient({
-          organization:  org,
-          currency_code: payload.currency_code,
-          language:      payload.language,
-          bus_phone:     payload.bus_phone,
-          mob_phone:     payload.mob_phone,
-          p_street:      payload.p_street,
-          p_street2:     payload.p_street2,
-          p_city:        payload.p_city,
-          p_province:    payload.p_province,
-          p_code:        payload.p_code,
-          p_country:     payload.p_country,
-          note:          payload.note,
-        });
-      }
+    } catch (err: any) {
+      // FreshBooks auto-generates a username from email/fname/lname.
+      // If that username is already taken, retry with org+address only
+      // (email, fname, lname are optional — only organization is required).
+      const fbErrors: any[] = err?.response?.data?.response?.errors || [];
+      const isUsernameTaken = fbErrors.some((e: any) =>
+        typeof e.message === 'string' && e.message.toLowerCase().includes('username') && e.message.toLowerCase().includes('already exists')
+      );
+      if (!isUsernameTaken) throw err;
+      await createClient({
+        organization:  org,
+        currency_code: payload.currency_code,
+        language:      payload.language,
+        bus_phone:     payload.bus_phone,
+        mob_phone:     payload.mob_phone,
+        p_street:      payload.p_street,
+        p_street2:     payload.p_street2,
+        p_city:        payload.p_city,
+        p_province:    payload.p_province,
+        p_code:        payload.p_code,
+        p_country:     payload.p_country,
+        note:          payload.note,
+      });
     }
   },
   (row) => row.organization?.trim() || `${row.fname || ''} ${row.lname || ''}`.trim() || row.email || '(blank)',
