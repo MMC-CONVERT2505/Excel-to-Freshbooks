@@ -867,7 +867,7 @@ export async function getPayments() {
   let page = 1, pages = 1;
   do {
     const res = await fbAxios.get(
-      `${BASE}/accounting/account/${accountId()}/payments/payments?page=${page}&per_page=100&include[]=invoice`,
+      `${BASE}/accounting/account/${accountId()}/payments/payments?page=${page}&per_page=100`,
       { headers: authHeader(token.accessToken) }
     );
     const result = res.data?.response?.result;
@@ -884,8 +884,19 @@ async function exportInvoicePaymentsExcel(): Promise<Buffer> {
   const require = createRequire(import.meta.url);
   const XLSX = require('xlsx');
 
-  const data = await getPayments();
-  const payments: any[] = data?.response?.result?.payments || [];
+  // Fetch payments and all invoices in parallel; build invoiceId → invoice lookup
+  const [payData, invData] = await Promise.all([getPayments(), getInvoices()]);
+  const payments: any[] = payData?.response?.result?.payments || [];
+  const invoices: any[] = invData?.response?.result?.invoices || [];
+
+  // Map FreshBooks invoice id → { invoice_number, client_name }
+  const invMap: Record<number, { invoice_number: string; client_name: string }> = {};
+  for (const inv of invoices) {
+    invMap[inv.id] = {
+      invoice_number: inv.invoice_number ?? '',
+      client_name:    inv.current_organization || `${inv.fname || ''} ${inv.lname || ''}`.trim() || '',
+    };
+  }
 
   if (payments.length === 0) {
     const wb = XLSX.utils.book_new();
@@ -895,15 +906,14 @@ async function exportInvoicePaymentsExcel(): Promise<Buffer> {
 
   const rows = payments.map(p => ({
     id:             p.id ?? '',
-    invoice_number: p.invoice?.invoice_number ?? p.invoiceid ?? '',
+    invoice_number: invMap[p.invoiceid]?.invoice_number ?? '',
+    client_name:    invMap[p.invoiceid]?.client_name ?? '',
     invoice_id:     p.invoiceid ?? '',
     amount:         p.amount?.amount ?? '',
     currency_code:  p.amount?.code ?? '',
     date:           p.date ?? '',
     type:           p.type ?? '',
     note:           p.note ?? '',
-    client_id:      p.clientid ?? '',
-    client_name:    p.invoice?.current_organization || `${p.invoice?.fname || ''} ${p.invoice?.lname || ''}`.trim() || '',
   }));
 
   const keys = Object.keys(rows[0]);
