@@ -867,7 +867,7 @@ export async function getPayments() {
   let page = 1, pages = 1;
   do {
     const res = await fbAxios.get(
-      `${BASE}/accounting/account/${accountId()}/payments/payments?page=${page}&per_page=100`,
+      `${BASE}/accounting/account/${accountId()}/payments/payments?page=${page}&per_page=100&include[]=invoice`,
       { headers: authHeader(token.accessToken) }
     );
     const result = res.data?.response?.result;
@@ -877,6 +877,40 @@ export async function getPayments() {
     page++;
   } while (page <= pages);
   return { response: { result: { payments: allPayments, total: allPayments.length } } };
+}
+
+async function exportInvoicePaymentsExcel(): Promise<Buffer> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const data = await getPayments();
+  const payments: any[] = data?.response?.result?.payments || [];
+
+  if (payments.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['id', '(no records found)']]), 'invoice_payments');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows = payments.map(p => ({
+    id:             p.id ?? '',
+    invoice_number: p.invoice?.invoice_number ?? p.invoiceid ?? '',
+    invoice_id:     p.invoiceid ?? '',
+    amount:         p.amount?.amount ?? '',
+    currency_code:  p.amount?.code ?? '',
+    date:           p.date ?? '',
+    type:           p.type ?? '',
+    note:           p.note ?? '',
+    client_id:      p.clientid ?? '',
+    client_name:    p.invoice?.current_organization || `${p.invoice?.fname || ''} ${p.invoice?.lname || ''}`.trim() || '',
+  }));
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'invoice_payments');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
 export async function getBillPayments() {
@@ -1390,14 +1424,22 @@ async function exportInvoicesExcel(): Promise<Buffer> {
         notes:           inv.notes ?? '',
         terms:           inv.terms ?? '',
         po_number:       inv.po_number ?? '',
-        line_name:       line.name ?? '',
+        invoice_total:    inv.amount?.amount ?? '',
+        line_name:        line.name ?? '',
         line_description: line.description ?? '',
-        line_qty:        line.qty ?? '',
-        line_unit_cost:  line.unit_cost?.amount ?? '',
-        tax_name1:       line.taxName1 ?? '',
-        tax_amount1:     line.taxAmount1 ?? '',
-        tax_name2:       line.taxName2 ?? '',
-        tax_amount2:     line.taxAmount2 ?? '',
+        line_qty:         line.qty ?? '',
+        line_unit_cost:   line.unit_cost?.amount ?? '',
+        line_subtotal:    line.amount?.amount ?? '',
+        tax_name1:        line.taxName1 ?? '',
+        tax_rate1:        line.taxAmount1 ?? '',
+        tax_amount1:      line.amount?.amount && line.taxAmount1
+                            ? (parseFloat(line.amount.amount) * parseFloat(line.taxAmount1) / 100).toFixed(2)
+                            : '',
+        tax_name2:        line.taxName2 ?? '',
+        tax_rate2:        line.taxAmount2 ?? '',
+        tax_amount2:      line.amount?.amount && line.taxAmount2
+                            ? (parseFloat(line.amount.amount) * parseFloat(line.taxAmount2) / 100).toFixed(2)
+                            : '',
       });
     }
   }
@@ -1587,7 +1629,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'invoices':          { getAll: getInvoices,        extractRecords: d => d.response?.result?.invoices || [],        deleteOne: deleteInvoice,       updateOne: updateInvoice, exportFn: exportInvoicesExcel, bulkUpdateFn: bulkUpdateInvoices },
   'bills':             { getAll: getBills,           extractRecords: d => d.response?.result?.bills || [],           deleteOne: deleteBill,          updateOne: updateBill },
   'credit-notes':      { getAll: getCreditNotes,     extractRecords: d => d.response?.result?.credit_notes || [],    deleteOne: deleteCreditNote,    updateOne: updateCreditNote },
-  'invoice-payments':  { getAll: getPayments,        extractRecords: d => d.response?.result?.payments || [],        deleteOne: deletePayment,       updateOne: updatePayment },
+  'invoice-payments':  { getAll: getPayments,        extractRecords: d => d.response?.result?.payments || [],        deleteOne: deletePayment,       updateOne: updatePayment,  exportFn: exportInvoicePaymentsExcel },
   'bill-payments':     { getAll: getBillPayments,    extractRecords: d => d.response?.result?.bill_payments || [],   deleteOne: deleteBillPayment,   updateOne: updateBillPayment },
   'journal-entries':   { getAll: getJournalEntries,  extractRecords: d => d.manualJournalEntries || [],              deleteOne: deleteJournalEntry,  updateOne: updateJournalEntry, stringId: true },
   'chart-of-accounts': {
