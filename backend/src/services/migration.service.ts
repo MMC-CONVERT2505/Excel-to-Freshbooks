@@ -827,14 +827,12 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         return lineObj;
       });
 
-      // FreshBooks status is numeric: 1=draft, 2=sent, 3=viewed
-      // 4 (outstanding) and 5 (overdue) are computed read-only — API rejects them on create
+      // FreshBooks invoice status codes: 1=Draft, 2=Sent, 4=Outstanding, 5=Overdue
       const statusMap: Record<string, number> = {
         '1': 1, draft: 1,
         '2': 2, sent: 2,
-        '3': 3, viewed: 3,
-        '4': 2, outstanding: 2, paid: 2, autopaid: 2,
-        '5': 2, overdue: 2, disputed: 2,
+        '4': 4, outstanding: 4,
+        '5': 5, overdue: 5,
       };
       const fbStatus = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 2;
 
