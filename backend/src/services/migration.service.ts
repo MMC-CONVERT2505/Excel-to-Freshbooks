@@ -827,17 +827,16 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         return lineObj;
       });
 
-      // FreshBooks create only accepts: 'draft' | 'sent' | 'viewed' | 'disputed'
-      // QBD numeric codes 4 (outstanding/paid) and 5 (overdue) are not valid — map to 'sent'
-      const statusMap: Record<string, string> = {
-        '1': 'draft',   draft: 'draft',
-        '2': 'sent',    sent: 'sent',
-        '3': 'viewed',  viewed: 'viewed',
-        '4': 'sent',    outstanding: 'sent', paid: 'sent', autopaid: 'sent',
-        '5': 'sent',    overdue: 'sent',
-        disputed: 'disputed',
+      // FreshBooks status is numeric: 1=draft, 2=sent, 3=viewed
+      // 4 (outstanding) and 5 (overdue) are computed read-only — API rejects them on create
+      const statusMap: Record<string, number> = {
+        '1': 1, draft: 1,
+        '2': 2, sent: 2,
+        '3': 3, viewed: 3,
+        '4': 2, outstanding: 2, paid: 2, autopaid: 2,
+        '5': 2, overdue: 2, disputed: 2,
       };
-      const fbStatus = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 'sent';
+      const fbStatus = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 2;
 
       // FreshBooks invoice_number max length is 20 characters
       const invoiceNum = String(header.invoice_number ?? '').slice(0, 20);
