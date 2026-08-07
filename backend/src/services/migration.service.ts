@@ -827,24 +827,31 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         return lineObj;
       });
 
-      const statusMap: Record<string, number> = {
-        draft: 1, '1': 1,
-        sent: 2, '2': 2,
-        outstanding: 4, '4': 4,
-        overdue: 5, '5': 5,
+      // FreshBooks create only accepts: 'draft' | 'sent' | 'viewed' | 'disputed'
+      // QBD numeric codes 4 (outstanding/paid) and 5 (overdue) are not valid — map to 'sent'
+      const statusMap: Record<string, string> = {
+        '1': 'draft',   draft: 'draft',
+        '2': 'sent',    sent: 'sent',
+        '3': 'viewed',  viewed: 'viewed',
+        '4': 'sent',    outstanding: 'sent', paid: 'sent', autopaid: 'sent',
+        '5': 'sent',    overdue: 'sent',
+        disputed: 'disputed',
       };
-      const statusCode = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 2;
+      const fbStatus = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 'sent';
+
+      // FreshBooks invoice_number max length is 20 characters
+      const invoiceNum = String(header.invoice_number ?? '').slice(0, 20);
 
       const res = await callWithRetry(() => createInvoice({
         customerid,
-        invoice_number: header.invoice_number,
+        invoice_number: invoiceNum,
         create_date: normalizeDate(header.create_date),
         currency_code: header.currency_code || 'USD',
         due_offset_days: Number(header.due_offset_days) || 30,
         notes: header.notes,
         terms: header.terms,
         language: header.language || 'en',
-        status: statusCode,
+        status: fbStatus,
         lines,
       }));
 
