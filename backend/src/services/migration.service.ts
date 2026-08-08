@@ -1486,19 +1486,7 @@ export async function migrateBillPayments(tokenId: number | null = null): Promis
 
     if (!billid) throw new Error(`Bill not found for vendor "${row.vendor_name}" — no bill in FreshBooks matches $${row.amount} (total FreshBooks bills: ${bills.length})`);
 
-    const billTypeMap: Record<string, string> = {
-      'check': 'Check', 'cheque': 'Check', 'cash': 'Cash',
-      'credit card': 'Credit', 'credit': 'Credit',
-      'visa': 'Visa', 'mastercard': 'Mastercard', 'master card': 'Mastercard',
-      'amex': 'Amex', 'american express': 'Amex',
-      'discover': 'Discover', 'diners': 'Diners', 'jcb': 'JCB',
-      'paypal': 'PayPal', 'bitcoin': 'Bitcoin',
-      'ach': 'Check', 'ach/eft': 'Check', 'eft': 'Check',
-      'wire': 'Check', 'wire transfer': 'Check',
-      'bank transfer': 'Check', 'electronic check': 'Check', 'echeck': 'Check',
-    };
-    const rawBillType  = (row.payment_type || '').toLowerCase().trim();
-    const safeBillType = billTypeMap[rawBillType] || 'Check';
+    const safeBillType = (row.payment_type || '').trim() || 'Check';
 
     await createBillPayment({
       billid,
