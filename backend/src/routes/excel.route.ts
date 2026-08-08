@@ -165,7 +165,12 @@ function push(issues: DryRunIssue[], row: number, sev: 'error' | 'warning', fiel
 
 // ─── VALID VALUE SETS ─────────────────────────────────────────────────────────
 // invoice-payments and bill-payments accept Wire + Online; income and expenses do not.
-const VALID_PAYMENT_TYPES_FULL    = new Set(['check', 'cash', 'credit', 'ach', 'wire', 'online']);
+const VALID_PAYMENT_TYPES_FULL   = new Set([
+  'check', 'cash', 'credit', 'ach', 'wire', 'online',
+  'bank transfer', 'credit card', 'visa', 'mastercard', 'master card',
+  'amex', 'american express', 'discover', 'diners', 'jcb', 'paypal',
+  'ach/eft', 'eft', 'wire transfer', 'electronic check', 'echeck', 'other',
+]);
 const VALID_PAYMENT_TYPES_INCOME  = new Set(['check', 'cash', 'credit', 'ach']);
 const VALID_CREDIT_TYPES          = new Set(['goodwill', 'overpayment', 'credit']);
 
@@ -236,7 +241,7 @@ function runBatch1(entity: EntityFile, rows: Row[], issues: DryRunIssue[]) {
       : VALID_PAYMENT_TYPES_FULL;
     const validList = (id === 'income' || id === 'expenses')
       ? 'Check, Cash, Credit, ACH'
-      : 'Check, Cash, Credit, ACH, Wire, Online';
+      : 'Check, Cash, Credit, ACH, Wire, Bank Transfer, Credit Card, Visa, Mastercard, Amex, PayPal, Other';
     for (let i = 0; i < rows.length; i++) {
       const raw = String(rows[i].payment_type || '').trim();
       if (raw && !validSet.has(raw.toLowerCase())) {
