@@ -1626,22 +1626,7 @@ export async function migrateInvoicePayments(tokenId: number | null = null): Pro
     }
 
     // Map common QBD payment types to FreshBooks-safe values (no spaces or slashes)
-    const typeMap: Record<string, string> = {
-      'check': 'Check', 'cheque': 'Check',
-      'cash': 'Cash',
-      'credit card': 'Credit Card', 'credit': 'Credit',
-      'visa': 'Visa',
-      'mastercard': 'Mastercard', 'master card': 'Mastercard',
-      'amex': 'Amex', 'american express': 'Amex',
-      'discover': 'Discover', 'diners': 'Diners', 'jcb': 'JCB',
-      'paypal': 'PayPal',
-      'bank transfer': 'Bank Transfer', 'wire transfer': 'Bank Transfer', 'wire': 'Bank Transfer',
-      'ach': 'ACH', 'ach/eft': 'ACH', 'eft': 'ACH',
-      'electronic check': 'Check', 'echeck': 'Check',
-      'other': 'Other',
-    };
-    const rawType   = (row.payment_type || '').toLowerCase().trim();
-    const safeType  = typeMap[rawType] || (row.payment_type?.trim()) || 'Check';
+    const safeType = (row.payment_type || '').trim() || 'Check';
 
     await createPayment({
       invoiceid,
