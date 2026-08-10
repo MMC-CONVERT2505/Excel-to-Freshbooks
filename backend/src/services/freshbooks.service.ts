@@ -1661,6 +1661,7 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
   'estimates': {
     getAll: getEstimates,
     extractRecords: (d: any) => d.response?.result?.estimates || [],
+    exportFn: exportEstimatesExcel,
     deleteOne: async () => { throw Object.assign(new Error('Estimates cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async () => { throw Object.assign(new Error('Estimates cannot be updated via this API'), { statusCode: 400 }); },
   },
@@ -1886,6 +1887,77 @@ export async function getRecurringInvoices() {
     page++;
   } while (page <= pages);
   return { response: { result: { invoice_profiles: allProfiles, total: allProfiles.length } } };
+}
+
+async function exportEstimatesExcel(): Promise<Buffer> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const token = await getToken();
+  const allEstimates: any[] = [];
+  let page = 1, pages = 1;
+  do {
+    const res = await fbAxios.get(
+      `${BASE}/accounting/account/${accountId()}/estimates/estimates?page=${page}&per_page=100&include[]=lines`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const result = res.data?.response?.result;
+    allEstimates.push(...(result?.estimates || []));
+    pages = result?.pages || 1;
+    page++;
+  } while (page <= pages);
+
+  if (allEstimates.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['estimate_number', '(no records found)']]), 'estimates');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  // One row per line item — estimate header fields repeated on every row
+  const rows: Record<string, any>[] = [];
+  for (const est of allEstimates) {
+    const lines: any[] = Array.isArray(est.lines) && est.lines.length > 0 ? est.lines : [{}];
+    for (const line of lines) {
+      rows.push({
+        estimate_id:      est.estimateid ?? '',
+        estimate_number:  est.estimatenum ?? '',
+        client_id:        est.clientid ?? '',
+        client_name:      est.current_organization || est.organization || `${est.fname || ''} ${est.lname || ''}`.trim() || '',
+        client_email:     est.email ?? '',
+        create_date:      est.create_date ?? '',
+        expiry_date:      est.expiry_date ?? '',
+        currency_code:    est.currency_code ?? '',
+        language:         est.language ?? '',
+        status:           est.status ?? '',
+        notes:            est.notes ?? '',
+        terms:            est.terms ?? '',
+        po_number:        est.po_number ?? '',
+        estimate_total:   est.amount?.amount ?? '',
+        line_name:        line.name ?? '',
+        line_description: line.description ?? '',
+        line_qty:         line.qty ?? '',
+        line_unit_cost:   line.unit_cost?.amount ?? '',
+        line_subtotal:    line.amount?.amount ?? '',
+        tax_name1:        line.taxName1 ?? '',
+        tax_rate1:        line.taxAmount1 ?? '',
+        tax_amount1:      line.amount?.amount && line.taxAmount1
+                            ? (parseFloat(line.amount.amount) * parseFloat(line.taxAmount1) / 100).toFixed(2)
+                            : '',
+        tax_name2:        line.taxName2 ?? '',
+        tax_rate2:        line.taxAmount2 ?? '',
+        tax_amount2:      line.amount?.amount && line.taxAmount2
+                            ? (parseFloat(line.amount.amount) * parseFloat(line.taxAmount2) / 100).toFixed(2)
+                            : '',
+      });
+    }
+  }
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'estimates');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
 export async function getEstimates() {
