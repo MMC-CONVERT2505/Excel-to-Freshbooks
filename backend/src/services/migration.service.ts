@@ -82,8 +82,24 @@ async function readUploadedRows(entityId: string, tokenId: number | null): Promi
   });
 
   if (!sheet) {
-    const err = new Error(`No uploaded file found for "${entityId}". Upload the sheet on the entity page first.`);
-    (err as any).statusCode = 400;
+    // Distinguish "never uploaded" from "uploaded for a different company". Both used to
+    // report "upload first", which hid the real reason and invited a blind re-upload.
+    const elsewhere = company
+      ? await prisma.uploadedSheet.findFirst({
+          where:   { entity: entityId, expiresAt: { gt: new Date() } },
+          orderBy: { uploadedAt: 'desc' },
+          include: { token: { select: { companyLabel: true } } },
+        })
+      : null;
+
+    const err = elsewhere
+      ? new Error(
+          `"${entityId}" was uploaded for ${elsewhere.token?.companyLabel ?? 'a different company'}, ` +
+          `but you are connected to ${company!.label}. Data is always pushed to the connected company — ` +
+          `re-upload the sheet while connected to ${company!.label}, or reconnect to the other company.`
+        )
+      : new Error(`No uploaded file found for "${entityId}". Upload the sheet on the entity page first.`);
+    (err as any).statusCode = elsewhere ? 409 : 400;
     throw err;
   }
 
