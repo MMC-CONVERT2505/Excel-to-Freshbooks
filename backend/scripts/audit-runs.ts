@@ -19,7 +19,14 @@
  */
 import 'dotenv/config';
 import { writeFileSync } from 'fs';
-import prisma from '../src/lib/prisma.js';
+
+// The production image ships compiled dist/ only (src/ is not copied), while local
+// dev runs from source. Try dist first, fall back to src.
+async function load(mod: string): Promise<any> {
+  try { return await import(`../dist/${mod}.js`); }
+  catch { return await import(`../src/${mod}.js`); }
+}
+const prisma = (await load('lib/prisma')).default;
 
 const args = process.argv.slice(2);
 const get  = (f: string) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : undefined; };
