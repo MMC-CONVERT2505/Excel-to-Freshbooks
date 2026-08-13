@@ -56,10 +56,13 @@ async function withSession<T>(req: Request, fn: (tokenId: number | null) => Prom
   }
 
   return runWithToken(tokenId, () => {
-    // Always state the destination in the logs. If data ever lands in the wrong place
-    // again, this line is the record of which company the server actually targeted.
-    const co = getSessionCompany();
-    console.log(`[PUSH] → company "${co?.label}" (account ${co?.accountId}, token ${tokenId}) by ${triggeredBy ?? 'unknown user'}`);
+    // Record the destination once per actual push. Only for mutating requests — GET
+    // /status is polled continuously by the frontend, and logging that flooded the
+    // output with a [PUSH] line every second.
+    if (req.method !== 'GET') {
+      const co = getSessionCompany();
+      console.log(`[PUSH] → company "${co?.label}" (account ${co?.accountId}, token ${tokenId}) by ${triggeredBy ?? 'unknown user'}`);
+    }
     return fn(tokenId);
   }, triggeredBy);
 }
