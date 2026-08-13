@@ -420,7 +420,10 @@ export default function EntityPage() {
             )}
 
             {/* result stats — only shown after a push in this session */}
-            {(entity.status === 'done' || entity.status === 'error') && (entity.pushed + entity.failed) > 0 && sessionPushed.has(entity.id) && (
+            {/* skipped must count here too — a run where every row was skipped has
+                pushed=0 and failed=0, which previously hid the whole panel and with it
+                the Skipped & Errors download. */}
+            {(entity.status === 'done' || entity.status === 'error') && (entity.pushed + entity.failed + entity.skipped) > 0 && sessionPushed.has(entity.id) && (
               <div className={`ep-result${entity.status === 'done' ? ' ep-result--complete' : ''}`}>
                 <div className="ep-result__stat ep-result__stat--green">
                   <b>{entity.pushed.toLocaleString()}</b><span>Pushed</span>

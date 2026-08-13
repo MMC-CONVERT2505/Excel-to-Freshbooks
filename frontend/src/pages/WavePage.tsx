@@ -412,7 +412,8 @@ function EntityCard({ entityId, workflow }: { entityId: string; workflow: string
       )}
 
       {/* results */}
-      {(entity.status === 'done' || entity.status === 'error') && entity.pushed + entity.failed > 0 && (
+      {/* skipped counts too — an all-skipped run has pushed=0 and failed=0 */}
+      {(entity.status === 'done' || entity.status === 'error') && entity.pushed + entity.failed + entity.skipped > 0 && (
         <div className="wc__result">
           <span className="wc__result-stat wc__result-stat--green">{entity.pushed.toLocaleString()} pushed</span>
           {entity.failed > 0 && <span className="wc__result-stat wc__result-stat--red">{entity.failed.toLocaleString()} failed</span>}
