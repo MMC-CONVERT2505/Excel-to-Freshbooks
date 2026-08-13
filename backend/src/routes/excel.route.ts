@@ -38,7 +38,9 @@ const EXCEL_FILES: Record<string, EntityFile> = {
   clients: {
     id: 'clients',
     name: 'Clients',
-    required: ['organization', 'fname', 'lname'],
+    // Only organization is required. fname/lname/email are optional — FreshBooks needs
+    // just the organization, and migrateClients() sends the rest only when present.
+    required: ['organization'],
   },
   vendors: {
     id: 'vendors',
@@ -505,15 +507,9 @@ async function inspectEntity(entity: EntityFile, rows: Row[], tokenId: number | 
         fix: 'Add the required column to the uploaded template.' });
   }
 
-  for (let i = 0; i < rows.length && issues.length < 80; i++) {
-    for (const req of entity.required) {
-      if (!hasAnyColumn(columns, req)) continue;
-      if (!rowValue(rows[i], req))
-        issues.push({ row: i + 2, sev: 'error', field: colLabel(req), value: '(blank)',
-          msg: `Required value "${colLabel(req)}" is blank.`,
-          fix: 'Fill the value or remove the empty row before pushing.' });
-    }
-  }
+  // Per-row blank checks are done by runBatch2() below. They used to be repeated here as
+  // well, so every blank required value was reported twice with different wording — two
+  // fields produced four errors.
 
   runBatch1(entity, rows, issues);
   await runBatch2(entity, rows, issues, tokenId);
