@@ -2341,12 +2341,17 @@ const ID_TO_ENTITY_TYPE: Record<string, string> = {
   'services':          'SERVICE',
   'expenses':          'EXPENSE',
   'income':            'INCOME',
+  'invoices':          'INVOICE',
   'credit-notes':      'CREDIT_NOTE',
   'bills':             'BILL',
   'bill-payments':     'BILL_PAYMENT',
   'invoice-payments':  'INVOICE_PAYMENT',
   'chart-of-accounts': 'CHART_OF_ACCOUNTS',
   'journal-entries':   'JOURNAL_ENTRY',
+  // The EntityType enum has no SALES_RECEIPT or EXPENSE_CATEGORY member, so these reuse
+  // the closest one. Without an entry here their issue report throws "Unknown entity".
+  'sales-receipts':     'INVOICE',
+  'expense-categories': 'EXPENSE',
 };
 
 // ── Issue recording for custom-loop migrations ───────────────────────────────
