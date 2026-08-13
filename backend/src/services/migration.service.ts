@@ -271,8 +271,15 @@ async function runMigration(
   const entityType = entityTypeMap[entity] || 'ITEM';
 
   // ── Duplicate guard: reject if this entity is already RUNNING ─────────────
+  // Scoped to this company. Unscoped, one company pushing Clients blocked every other
+  // company from pushing Clients, and a single stuck phase locked the entity globally.
+  const effectiveTokenId = tokenId ?? getSessionTokenId();
   const alreadyRunning = await prisma.migrationPhase.findFirst({
-    where: { entity: entityType as any, status: 'RUNNING' },
+    where: {
+      entity: entityType as any,
+      status: 'RUNNING',
+      run:    { tokenId: effectiveTokenId },
+    },
   });
   if (alreadyRunning) {
     const err = new Error(`${entity} migration is already in progress — only one at a time`);
@@ -309,6 +316,13 @@ async function runMigration(
 
   // Clear old records so re-runs start clean
   await prisma.migrationRecord.deleteMany({ where: { phaseId: phase.id } });
+
+  // Clear any stale cancellation flag before starting. The loop below only tests the flag
+  // at each batch boundary, so a cancel arriving during the final batch is never consumed
+  // — and with rows <= CONCURRENCY there is just one batch, so it is never consumed at all.
+  // The flag would then survive and abort the *next* run at row 1, which is what a fresh
+  // push reporting "Cancelled by user at row 1/N" actually means.
+  cancelledEntities.delete(sessionKey(entity));
 
   console.log(`\n${tag} Starting migration — ${rows.length} records to push (${CONCURRENCY} workers)`);
 
@@ -384,7 +398,14 @@ async function runMigration(
       liveProgress.delete(sessionKey(entity));
       console.log(`${tag} Cancelled by user at row ${i + 1}/${rows.length} — stopping.`);
       result.durationMs = Date.now() - startTime;
-      // Phase already marked FAILED by cancelMigration(); just return without overwriting status
+      // cancelMigration() normally marks the phase FAILED already, but settle it here too.
+      // This phase was just upserted to RUNNING above, and leaving it RUNNING would both
+      // freeze the UI on "Running… 0/N" and trip the duplicate guard, permanently blocking
+      // any further push of this entity.
+      await prisma.migrationPhase.update({
+        where: { id: phase.id },
+        data:  { status: 'FAILED', completedAt: new Date(), durationMs: result.durationMs },
+      }).catch(() => {});
       return result;
     }
 
@@ -2312,13 +2333,25 @@ export async function cancelMigration(entityId: string, tokenId?: number | null)
   // Remove from liveProgress so the status endpoint no longer shows it as RUNNING
   liveProgress.delete(tokenId ? `${tokenId}:${entityId}` : entityId);
 
-  // Immediately mark the running phase FAILED in DB so the next status poll reflects it
+  // Immediately mark the running phase FAILED in DB so the next status poll reflects it.
+  // Resolve the ids first: this must only touch THIS company's phase — unscoped, cancelling
+  // here also killed another company's in-flight migration of the same entity.
   const entityType = ID_TO_ENTITY_TYPE[entityId];
   if (entityType) {
-    await prisma.migrationPhase.updateMany({
-      where: { entity: entityType as any, status: 'RUNNING' },
-      data:  { status: 'FAILED', completedAt: new Date() },
+    const mine = await prisma.migrationPhase.findMany({
+      where:  {
+        entity: entityType as any,
+        status: 'RUNNING',
+        run:    { tokenId: tokenId ?? getSessionTokenId() },
+      },
+      select: { id: true },
     });
+    if (mine.length) {
+      await prisma.migrationPhase.updateMany({
+        where: { id: { in: mine.map(p => p.id) } },
+        data:  { status: 'FAILED', completedAt: new Date() },
+      });
+    }
   }
 
   // If no other phases are still running, mark the run as CANCELLED too
