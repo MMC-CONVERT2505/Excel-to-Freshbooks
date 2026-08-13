@@ -22,11 +22,24 @@ const sessionCtx = new AsyncLocalStorage<SessionCtx>();
 export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, triggeredBy?: string | null): Promise<T> {
   const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
   if (!token) throw new Error(`Token ${tokenId} not found in DB`);
+
+  // Never inherit _accountId here. Those globals are overwritten by whichever company
+  // connected most recently, so a token whose business was never resolved (multi-business
+  // account where the user has not picked one yet) would silently target someone else's
+  // account — accountId is the company segment of every FreshBooks URL.
+  if (!token.accountId) {
+    const err = new Error(
+      'This FreshBooks connection has no business selected yet. Choose the company on the Connect page before continuing.'
+    );
+    (err as any).statusCode = 409;
+    throw err;
+  }
+
   const ctx: SessionCtx = {
     tokenId,
-    accountId:    token.accountId    || _accountId,
-    businessUuid: token.businessUuid || _businessUuid,
-    businessId:   token.businessId   || _businessId,
+    accountId:    token.accountId,
+    businessUuid: token.businessUuid || '',
+    businessId:   token.businessId   || '',
     triggeredBy:  triggeredBy ?? null,
   };
   return sessionCtx.run(ctx, fn);
@@ -61,18 +74,11 @@ export async function loadBusinessConfigFromDB() {
   console.log(`[CONFIG] accountId=${_accountId} businessUuid=${_businessUuid}`);
 }
 
-// Load business config for a specific session token — must be called before any migration
-// to ensure the global config points to the right FreshBooks account.
-export async function loadBusinessConfigForToken(tokenId: number): Promise<void> {
-  const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
-  if (!token) throw new Error(`Token ID ${tokenId} not found in DB`);
-  if (token.accountId)    _accountId    = token.accountId;
-  if (token.businessUuid) _businessUuid = token.businessUuid;
-  if (token.businessId)   _businessId   = token.businessId;
-  // Ensure getToken() returns THIS token's access token for all subsequent API calls
-  await prisma.freshbooksToken.updateMany({ where: { isActive: true }, data: { isCurrent: false } });
-  await prisma.freshbooksToken.update({ where: { id: tokenId }, data: { isCurrent: true } });
-}
+// NOTE: loadBusinessConfigForToken() was removed here deliberately. It mutated the
+// process-wide globals and flipped isCurrent across every token, so two users calling
+// it concurrently would clobber each other's account and send one customer's data into
+// the other's company. Per-session isolation is handled by runWithToken() instead —
+// do not reintroduce a "set the current company globally" helper.
 
 async function getToken() {
   const ctx = sessionCtx.getStore();
@@ -80,12 +86,18 @@ async function getToken() {
     ? await prisma.freshbooksToken.findUnique({ where: { id: ctx.tokenId } })
     : null;
 
-  // Fallback for OAuth flow / non-migration routes (no session context)
+  // No session context means we cannot know which company this call belongs to.
+  // Previously this fell through to "isCurrent, else newest active token" — i.e.
+  // whichever company connected last, possibly another client's — which silently
+  // sent one customer's data into another customer's account. Refuse instead.
   if (!token) {
-    token = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true } })
-      ?? await prisma.freshbooksToken.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
+    const err = new Error(
+      'No FreshBooks session for this request. Reconnect on the Connect page — ' +
+      'refusing to guess which company this belongs to.'
+    );
+    (err as any).statusCode = 401;
+    throw err;
   }
-  if (!token) throw new Error('No token found. Complete OAuth flow first.');
 
   // Auto-refresh if expired or expiring within 5 minutes
   if (token.expiresAt <= new Date(Date.now() + 5 * 60 * 1000)) {
@@ -149,9 +161,12 @@ async function refreshToken(token: any) {
   return newToken;
 }
 
-function accountId()    { return sessionCtx.getStore()?.accountId    ?? _accountId; }
-function businessUuid() { return sessionCtx.getStore()?.businessUuid ?? _businessUuid; }
-function businessId()   { return sessionCtx.getStore()?.businessId   ?? _businessId; }
+// Inside a session the context is authoritative and the globals are never blended in —
+// they belong to whichever company connected last. The bare globals remain only for the
+// OAuth bootstrap, which runs before any session exists.
+function accountId()    { const s = sessionCtx.getStore(); return s ? s.accountId    : _accountId; }
+function businessUuid() { const s = sessionCtx.getStore(); return s ? s.businessUuid : _businessUuid; }
+function businessId()   { const s = sessionCtx.getStore(); return s ? s.businessId   : _businessId; }
 
 function authHeader(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
