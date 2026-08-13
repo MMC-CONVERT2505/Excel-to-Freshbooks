@@ -15,6 +15,7 @@ interface SessionCtx {
   accountId:    string;
   businessUuid: string;
   businessId:   string;
+  companyLabel: string;
   triggeredBy?: string | null;
 }
 const sessionCtx = new AsyncLocalStorage<SessionCtx>();
@@ -40,6 +41,7 @@ export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, tri
     accountId:    token.accountId,
     businessUuid: token.businessUuid || '',
     businessId:   token.businessId   || '',
+    companyLabel: token.companyLabel || '(unnamed)',
     triggeredBy:  triggeredBy ?? null,
   };
   return sessionCtx.run(ctx, fn);
@@ -47,6 +49,12 @@ export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, tri
 
 export function getSessionTokenId(): number | null {
   return sessionCtx.getStore()?.tokenId ?? null;
+}
+
+// The company this request is bound to. Null outside a session.
+export function getSessionCompany(): { accountId: string; label: string } | null {
+  const s = sessionCtx.getStore();
+  return s ? { accountId: s.accountId, label: s.companyLabel } : null;
 }
 
 export function getSessionTriggeredBy(): string | null {

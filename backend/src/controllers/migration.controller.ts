@@ -21,7 +21,7 @@ import {
   getMigrationStatus,
   cancelMigration,
 } from '../services/migration.service.js';
-import { runWithToken } from '../services/freshbooks.service.js';
+import { runWithToken, getSessionCompany } from '../services/freshbooks.service.js';
 
 const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFunction) => {
   try { await fn(req, res, next); } catch (err) { next(err); }
@@ -52,7 +52,13 @@ async function withSession<T>(req: Request, fn: (tokenId: number | null) => Prom
     throw err;
   }
 
-  return runWithToken(tokenId, () => fn(tokenId), triggeredBy);
+  return runWithToken(tokenId, () => {
+    // Always state the destination in the logs. If data ever lands in the wrong place
+    // again, this line is the record of which company the server actually targeted.
+    const co = getSessionCompany();
+    console.log(`[PUSH] → company "${co?.label}" (account ${co?.accountId}, token ${tokenId}) by ${triggeredBy ?? 'unknown user'}`);
+    return fn(tokenId);
+  }, triggeredBy);
 }
 
 export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateClients(t))); });

@@ -19,6 +19,7 @@ import {
   createService, setServiceRate, getServices, getTasks, updateTask,
   getJournalEntries, createJournalEntry,
   getSessionTokenId,
+  getSessionCompany,
   getSessionTriggeredBy,
 } from './freshbooks.service.js';
 
@@ -64,19 +65,39 @@ type MigrationResult = {
 
 // Read uploaded rows for an entity from DB, scoped to the caller's session token.
 async function readUploadedRows(entityId: string, tokenId: number | null): Promise<Row[]> {
+  const company = getSessionCompany();
+
+  // Scope by COMPANY, not by connection. Sheets are stored against the tokenId that
+  // uploaded them, but every reconnect mints a fresh token — even for the same company.
+  // Matching on the token's accountId keeps a user's sheets across reconnects, and makes
+  // it impossible for sheets uploaded for one company to be read while pushing to another.
   const sheet = await prisma.uploadedSheet.findFirst({
     where: {
-      entity: entityId,
-      tokenId,
+      entity:    entityId,
       expiresAt: { gt: new Date() },
+      ...(company ? { token: { accountId: company.accountId } } : { tokenId }),
     },
     orderBy: { uploadedAt: 'desc' },
+    include: { token: { select: { accountId: true, companyLabel: true } } },
   });
+
   if (!sheet) {
     const err = new Error(`No uploaded file found for "${entityId}". Upload the sheet on the entity page first.`);
     (err as any).statusCode = 400;
     throw err;
   }
+
+  // Belt-and-braces: the query above already constrains this, but assert it explicitly so
+  // any future change to the filter cannot quietly start pushing another company's data.
+  if (company && sheet.token?.accountId && sheet.token.accountId !== company.accountId) {
+    const err = new Error(
+      `Refusing to push: "${entityId}" was uploaded for ${sheet.token.companyLabel ?? 'another company'} ` +
+      `but this session is connected to ${company.label}. Re-upload the sheet for the correct company.`
+    );
+    (err as any).statusCode = 409;
+    throw err;
+  }
+
   return sheet.rows as Row[];
 }
 
