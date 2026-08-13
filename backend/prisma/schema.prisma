@@ -28,6 +28,11 @@ enum EntityType {
   BILL_PAYMENT
   INVOICE_PAYMENT
   JOURNAL_ENTRY
+  // Sales receipts and expense categories previously reused INVOICE and EXPENSE.
+  // A phase is unique per (run, entity), so pushing both members of either pair in
+  // one run made the second overwrite the first's phase and its issue records.
+  SALES_RECEIPT
+  EXPENSE_CATEGORY
 }
 
 enum RunStatus {

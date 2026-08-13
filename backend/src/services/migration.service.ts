@@ -266,7 +266,8 @@ async function runMigration(
     invoice_payments:   'INVOICE_PAYMENT',
     chart_of_accounts:  'CHART_OF_ACCOUNTS',
     journal_entries:    'JOURNAL_ENTRY',
-    expense_categories: 'EXPENSE',
+    expense_categories: 'EXPENSE_CATEGORY',
+    sales_receipts:     'SALES_RECEIPT',
   };
   const entityType = entityTypeMap[entity] || 'ITEM';
 
@@ -2222,6 +2223,8 @@ const ENTITY_TYPE_TO_ID: Record<string, string> = {
   BILL_PAYMENT:      'bill-payments',
   INVOICE_PAYMENT:   'invoice-payments',
   JOURNAL_ENTRY:     'journal-entries',
+  SALES_RECEIPT:     'sales-receipts',
+  EXPENSE_CATEGORY:  'expense-categories',
 };
 
 export async function getMigrationStatus(tokenId?: number | null) {
@@ -2348,10 +2351,8 @@ const ID_TO_ENTITY_TYPE: Record<string, string> = {
   'invoice-payments':  'INVOICE_PAYMENT',
   'chart-of-accounts': 'CHART_OF_ACCOUNTS',
   'journal-entries':   'JOURNAL_ENTRY',
-  // The EntityType enum has no SALES_RECEIPT or EXPENSE_CATEGORY member, so these reuse
-  // the closest one. Without an entry here their issue report throws "Unknown entity".
-  'sales-receipts':     'INVOICE',
-  'expense-categories': 'EXPENSE',
+  'sales-receipts':     'SALES_RECEIPT',
+  'expense-categories': 'EXPENSE_CATEGORY',
 };
 
 // ── Issue recording for custom-loop migrations ───────────────────────────────
@@ -2391,7 +2392,7 @@ async function flushCustomPhase(
   try {
     const entityTypeMap: Record<string, string> = {
       invoices:          'INVOICE',
-      'sales-receipts':  'INVOICE',
+      'sales-receipts':  'SALES_RECEIPT',
       bills:             'BILL',
       'credit-notes':    'CREDIT_NOTE',
       'journal-entries': 'JOURNAL_ENTRY',
