@@ -779,16 +779,20 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
 
   const invoiceGroups = Object.entries(groups);
   const result: MigrationResult = { entity: 'invoices', total: invoiceGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const invStart = Date.now();
   let rowIndex = 2;
 
   liveProgress.set(sessionKey('invoices'), { done: 0, total: invoiceGroups.length, startedAt: Date.now() });
   console.log(`\n[INVOICES] Starting migration — ${invoiceGroups.length} invoices to push`);
 
   for (const [invoiceNum, lineRows] of invoiceGroups) {
-    const i = result.success + result.failed;
+    const i = result.success + result.failed + result.skipped;
     const label = `[INVOICES] (${i + 1}/${invoiceGroups.length}) #${invoiceNum}`;
     if (existingInvoiceNums.has(invoiceNum.toLowerCase())) {
-      result.success++;
+      // Counted as success previously, which is why invoices always reported 0 skipped.
+      result.skipped++;
+      issues.skipped(rowIndex, `#${invoiceNum}`, lineRows[0], 'Invoice number already exists in FreshBooks');
       console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
       rowIndex += lineRows.length;
       continue;
@@ -922,6 +926,7 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
       const detail = err?.response?.data;
       const errMsg = detail ? JSON.stringify(detail) : err.message;
       result.errors.push({ row: rowIndex, error: errMsg });
+      issues.failed(rowIndex, `#${invoiceNum}`, lineRows[0], errMsg);
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
@@ -930,7 +935,9 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   }
 
   markLiveProgressCompleted(sessionKey('invoices'));
-  console.log(`[INVOICES] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - invStart;
+  await flushCustomPhase('invoices', result, issues.all, tokenId);
+  console.log(`[INVOICES] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -992,17 +999,20 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
 
   const receiptGroups = Object.entries(groups);
   const result: MigrationResult = { entity: 'sales-receipts', total: receiptGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const srStart = Date.now();
   let rowIndex = 2;
 
   liveProgress.set(sessionKey('sales-receipts'), { done: 0, total: receiptGroups.length, startedAt: Date.now() });
   console.log(`\n[SALES-RCPT] Starting migration — ${receiptGroups.length} receipts to push`);
 
   for (const [receiptNum, lineRows] of receiptGroups) {
-    const i = result.success + result.failed;
+    const i = result.success + result.failed + result.skipped;
     const label = `[SALES-RCPT] (${i + 1}/${receiptGroups.length}) #${receiptNum}`;
 
     if (existingInvoiceNums.has(receiptNum.toLowerCase())) {
       result.skipped++;
+      issues.skipped(rowIndex, `#${receiptNum}`, lineRows[0], 'Receipt number already exists in FreshBooks');
       console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
       rowIndex += lineRows.length;
       liveProgress.get(sessionKey('sales-receipts'))!.done = result.success + result.failed + result.skipped;
@@ -1091,6 +1101,7 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
       const detail = err?.response?.data;
       const errMsg = detail ? JSON.stringify(detail) : err.message;
       result.errors.push({ row: rowIndex, error: errMsg });
+      issues.failed(rowIndex, `#${receiptNum}`, lineRows[0], errMsg);
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
@@ -1099,7 +1110,9 @@ export async function migrateSalesReceipts(tokenId: number | null = null): Promi
   }
 
   markLiveProgressCompleted(sessionKey('sales-receipts'));
-  console.log(`[SALES-RCPT] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - srStart;
+  await flushCustomPhase('sales-receipts', result, issues.all, tokenId);
+  console.log(`[SALES-RCPT] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -1197,16 +1210,20 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
 
   const cnGroups = Object.entries(groups);
   const result: MigrationResult = { entity: 'credit_notes', total: cnGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const cnStart = Date.now();
   let rowIndex = 2;
 
   liveProgress.set(sessionKey('credit-notes'), { done: 0, total: cnGroups.length, startedAt: Date.now() });
   console.log(`\n[CREDIT_NOTES] Starting migration — ${cnGroups.length} credit notes to push`);
 
   for (const [cnNum, lineRows] of cnGroups) {
-    const i = result.success + result.failed;
+    const i = result.success + result.failed + result.skipped;
     const label = `[CREDIT_NOTES] (${i + 1}/${cnGroups.length}) #${cnNum}`;
     if (existingCNNums.has(cnNum.toLowerCase())) {
-      result.success++;
+      // Was counted as success, so credit notes always reported 0 skipped.
+      result.skipped++;
+      issues.skipped(rowIndex, `#${cnNum}`, lineRows[0], 'Credit note number already exists in FreshBooks');
       console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
       rowIndex += lineRows.length;
       continue;
@@ -1276,6 +1293,7 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
       const detail = err?.response?.data;
       const errMsg = detail ? JSON.stringify(detail) : err.message;
       result.errors.push({ row: rowIndex, error: errMsg });
+      issues.failed(rowIndex, `#${cnNum}`, lineRows[0], errMsg);
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
@@ -1284,7 +1302,9 @@ export async function migrateCreditNotes(tokenId: number | null = null): Promise
   }
 
   markLiveProgressCompleted(sessionKey('credit-notes'));
-  console.log(`[CREDIT_NOTES] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - cnStart;
+  await flushCustomPhase('credit-notes', result, issues.all, tokenId);
+  console.log(`[CREDIT_NOTES] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -1327,18 +1347,22 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
 
   const billGroups = Object.entries(groups);
   const result: MigrationResult = { entity: 'bills', total: billGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const billStart = Date.now();
   let rowIndex = 2;
 
   liveProgress.set(sessionKey('bills'), { done: 0, total: billGroups.length, startedAt: Date.now() });
   console.log(`\n[BILLS] Starting migration — ${billGroups.length} bills to push`);
 
   for (const [billNum, lineRows] of billGroups) {
-    const i = result.success + result.failed;
+    const i = result.success + result.failed + result.skipped;
     const label = `[BILLS] (${i + 1}/${billGroups.length}) #${billNum}`;
     const header = lineRows[0];
     const billDedupKey = `${header.vendor_name || ''}|${header.date}`.toLowerCase();
     if (existingBillKeys.has(billDedupKey)) {
-      result.success++;
+      // Was counted as success, so bills always reported 0 skipped.
+      result.skipped++;
+      issues.skipped(rowIndex, `#${billNum}`, header, `A bill for "${header.vendor_name}" dated ${header.date} already exists in FreshBooks`);
       console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
       rowIndex += lineRows.length;
       continue;
@@ -1413,6 +1437,7 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
       const detail = err?.response?.data;
       const errMsg = detail ? JSON.stringify(detail) : err.message;
       result.errors.push({ row: rowIndex, error: errMsg });
+      issues.failed(rowIndex, `#${billNum}`, header, errMsg);
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     rowIndex += lineRows.length;
@@ -1421,7 +1446,9 @@ export async function migrateBills(tokenId: number | null = null): Promise<Migra
   }
 
   markLiveProgressCompleted(sessionKey('bills'));
-  console.log(`[BILLS] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - billStart;
+  await flushCustomPhase('bills', result, issues.all, tokenId);
+  console.log(`[BILLS] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
 
   // Verify actual count in FreshBooks
   try {
@@ -1783,6 +1810,8 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
   console.log(`\n[COA] Loaded ${accounts.length} accounts from FreshBooks into lookup map`);
 
   const result: MigrationResult = { entity: 'chart_of_accounts', total: rows.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const coaStart = Date.now();
   liveProgress.set(sessionKey('chart-of-accounts'), { done: 0, total: rows.length, startedAt: Date.now() });
   console.log(`\n[COA] Starting migration — ${rows.length} accounts to push`);
 
@@ -1894,6 +1923,7 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
       const detail = err?.response?.data;
       const errMsg = detail ? JSON.stringify(detail) : err.message;
       result.errors.push({ row: i + 2, error: errMsg });
+      issues.failed(i + 2, row.name || row.number || '', row, errMsg);
       console.log(`${label} → ❌ failed: ${errMsg}`);
     }
     liveProgress.get(sessionKey('chart-of-accounts'))!.done = result.success + result.failed + result.skipped;
@@ -1931,7 +1961,9 @@ export async function migrateChartOfAccounts(tokenId: number | null = null): Pro
   for (const { row, i } of subPass) await processRow(row, i);
 
   markLiveProgressCompleted(sessionKey('chart-of-accounts'));
-  console.log(`[COA] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - coaStart;
+  await flushCustomPhase('chart-of-accounts', result, issues.all, tokenId);
+  console.log(`[COA] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -2055,6 +2087,9 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
     success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [],
   };
 
+  const issues = newIssueCollector();
+  const jeStart = Date.now();
+
   liveProgress.set(sessionKey('journal-entries'), { done: 0, total: entryGroups.length, startedAt: Date.now() });
   console.log(`\n[JE] Starting migration — ${entryGroups.length} journal entries to push (${CONCURRENCY} workers)`);
 
@@ -2067,6 +2102,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
 
       if (existingNums.has(entryNum.toLowerCase())) {
         result.skipped++;
+        issues.skipped(idx + 2, `#${entryNum}`, lineRows[0], 'Journal entry number already exists in FreshBooks');
         console.log(`${label} → ⚡ skipped (already exists)`);
         return;
       }
@@ -2112,6 +2148,7 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
         const detail = err?.response?.data;
         const errMsg = detail ? JSON.stringify(detail) : err.message;
         result.errors.push({ row: idx + 2, error: errMsg });
+        issues.failed(idx + 2, `#${entryNum}`, lineRows[0], errMsg);
         console.log(`${label} → ❌ failed: ${errMsg}`);
       }
     }));
@@ -2121,7 +2158,9 @@ export async function migrateJournalEntries(tokenId: number | null = null): Prom
   }
 
   markLiveProgressCompleted(sessionKey('journal-entries'));
-  console.log(`[JE] Done — success: ${result.success}, failed: ${result.failed}`);
+  result.durationMs = Date.now() - jeStart;
+  await flushCustomPhase('journal-entries', result, issues.all, tokenId);
+  console.log(`[JE] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -2309,6 +2348,114 @@ const ID_TO_ENTITY_TYPE: Record<string, string> = {
   'chart-of-accounts': 'CHART_OF_ACCOUNTS',
   'journal-entries':   'JOURNAL_ENTRY',
 };
+
+// ── Issue recording for custom-loop migrations ───────────────────────────────
+// invoices, sales-receipts, bills, credit-notes, journal-entries and chart-of-accounts
+// run bespoke loops instead of runMigration(), so they create no MigrationPhase and no
+// MigrationRecords — their skip/error detail vanished with the HTTP response and never
+// reached History or the issue report. Collect issues during the loop, then flush once
+// at the end. Everything here is best-effort: reporting must never fail a migration.
+type CollectedIssue = {
+  sourceRow:  number;
+  naturalKey: string;
+  payload:    Record<string, any>;
+  status:     'SKIPPED' | 'FAILED';
+  message:    string;
+};
+
+export function newIssueCollector() {
+  const issues: CollectedIssue[] = [];
+  return {
+    skipped(sourceRow: number, naturalKey: string, payload: Record<string, any>, message: string) {
+      issues.push({ sourceRow, naturalKey, payload, status: 'SKIPPED', message });
+    },
+    failed(sourceRow: number, naturalKey: string, payload: Record<string, any>, message: string) {
+      issues.push({ sourceRow, naturalKey, payload, status: 'FAILED', message });
+    },
+    get all() { return issues; },
+  };
+}
+
+// Persists a phase plus one record per collected issue for a custom-loop migration.
+async function flushCustomPhase(
+  entity: string,
+  result: MigrationResult,
+  issues: CollectedIssue[],
+  tokenId: number | null,
+): Promise<void> {
+  try {
+    const entityTypeMap: Record<string, string> = {
+      invoices:          'INVOICE',
+      'sales-receipts':  'INVOICE',
+      bills:             'BILL',
+      'credit-notes':    'CREDIT_NOTE',
+      'journal-entries': 'JOURNAL_ENTRY',
+      'chart-of-accounts': 'CHART_OF_ACCOUNTS',
+    };
+    const entityType = entityTypeMap[entity];
+    if (!entityType) return;
+
+    const effectiveTokenId = tokenId ?? getSessionTokenId();
+
+    let run = await prisma.migrationRun.findFirst({
+      where:   { status: 'RUNNING', tokenId: effectiveTokenId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!run) {
+      run = await prisma.migrationRun.create({
+        data: {
+          status:      'COMPLETED',
+          startedAt:   new Date(),
+          completedAt: new Date(),
+          tokenId:     effectiveTokenId,
+          triggeredBy: getSessionTriggeredBy(),
+        },
+      });
+    }
+
+    const status = result.failed > 0 ? 'PARTIAL' : 'COMPLETED';
+    const phase = await prisma.migrationPhase.upsert({
+      where:  { runId_entity: { runId: run.id, entity: entityType as any } },
+      update: {
+        status: status as any, totalRecords: result.total, successCount: result.success,
+        failedCount: result.failed, skippedCount: result.skipped,
+        completedAt: new Date(), durationMs: result.durationMs,
+      },
+      create: {
+        runId: run.id, entity: entityType as any, status: status as any,
+        totalRecords: result.total, successCount: result.success,
+        failedCount: result.failed, skippedCount: result.skipped,
+        startedAt: new Date(), completedAt: new Date(), durationMs: result.durationMs,
+      },
+    });
+
+    await prisma.migrationRecord.deleteMany({ where: { phaseId: phase.id } });
+
+    for (const issue of issues) {
+      const record = await prisma.migrationRecord.create({
+        data: {
+          phaseId:       phase.id,
+          sourceRow:     issue.sourceRow,
+          naturalKey:    issue.naturalKey || undefined,
+          sourcePayload: issue.payload as any,
+          status:        issue.status as any,
+          lastAttemptAt: new Date(),
+          attemptCount:  1,
+        },
+      });
+      await prisma.migrationError.create({
+        data: {
+          recordId: record.id,
+          attempt:  1,
+          category: issue.status === 'SKIPPED' ? 'DUPLICATE' : 'UNKNOWN',
+          message:  issue.message,
+        },
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[${entity.toUpperCase()}] Could not persist issue report: ${err.message}`);
+  }
+}
 
 // Builds an .xlsx with a "Skipped" sheet and an "Errors" sheet for the latest run of one
 // entity, scoped to the connected company. Each row carries the reason plus every column

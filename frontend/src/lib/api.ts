@@ -194,6 +194,33 @@ export function getCreditMemos(): Promise<{ response: { result: { credit_notes: 
 
 export type BulkOpResult = { deleted?: number; updated?: number; failed: number; errors: string[] };
 
+// Downloads the Skipped + Errors workbook for an entity's most recent run.
+export async function downloadIssueReport(entity: string): Promise<void> {
+  const sessionId = getSessionId();
+  const appToken  = getAppToken();
+  const res = await fetch(`${API_BASE}/migrate/report/${entity}`, {
+    headers: {
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
+    },
+  });
+  if (res.status === 401) { handleUnauthorized(); throw new Error('Session expired. Please log in again.'); }
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`;
+    try { const b = await res.json(); message = b?.message || b?.error || message; } catch {}
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${entity}_issues.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function fbExportEntity(entity: string): Promise<void> {
   const sessionId = getSessionId();
   const appToken  = getAppToken();

@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { CatIcon, Badge } from '../components/CatIcon';
 import { templateFor, updateTemplateFor } from '../data/entities';
-import { uploadExcelFile, dryRunExcel, fbDeleteById, fbBulkDelete, fbBulkUpdate, fbExportEntity, getFBCounts } from '../lib/api';
+import { uploadExcelFile, dryRunExcel, fbDeleteById, fbBulkDelete, fbBulkUpdate, fbExportEntity, getFBCounts, downloadIssueReport } from '../lib/api';
 import type { ExcelDryRunReport, BulkOpResult, FBCounts } from '../lib/api';
 
 function fmtSize(b: number) {
@@ -439,6 +439,23 @@ export default function EntityPage() {
                   <div className="ep-result__stat ep-result__stat--muted">
                     <b>{entity.dur}</b><span>Duration</span>
                   </div>
+                )}
+                {(entity.skipped > 0 || entity.failed > 0) && (
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={async () => {
+                      try {
+                        await downloadIssueReport(entity.id);
+                        toast('success', 'Report downloaded', `${entity.id}_issues.xlsx — Skipped and Errors sheets.`);
+                      } catch (err: any) {
+                        toast('error', 'Download failed', err.message);
+                      }
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Skipped &amp; Errors
+                  </button>
                 )}
               </div>
             )}
