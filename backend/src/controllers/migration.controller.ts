@@ -20,6 +20,7 @@ import {
   migrateAll,
   getMigrationStatus,
   cancelMigration,
+  buildIssueReport,
 } from '../services/migration.service.js';
 import { runWithToken, getSessionCompany } from '../services/freshbooks.service.js';
 
@@ -88,4 +89,17 @@ export const runGetMigrationStatus     = wrap(async (req: Request, res: Response
 export const runCancelMigration        = wrap(async (req: Request, res: Response) => {
   const entityId = String(req.params.entity);
   res.json(await cancelMigration(entityId, tid(req)));
+});
+
+// Skipped + Errors workbook for the latest run of one entity, scoped to this company.
+export const runDownloadIssueReport = wrap(async (req: Request, res: Response) => {
+  const entityId = String(req.params.entity);
+  const { buffer, skipped, failed } = await withSession(req, () => buildIssueReport(entityId));
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${entityId}_issues.xlsx"`);
+  // Let the frontend show counts without parsing the workbook.
+  res.setHeader('X-Skipped-Count', String(skipped));
+  res.setHeader('X-Failed-Count',  String(failed));
+  res.setHeader('Access-Control-Expose-Headers', 'X-Skipped-Count, X-Failed-Count');
+  res.send(buffer);
 });

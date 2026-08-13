@@ -2310,6 +2310,76 @@ const ID_TO_ENTITY_TYPE: Record<string, string> = {
   'journal-entries':   'JOURNAL_ENTRY',
 };
 
+// Builds an .xlsx with a "Skipped" sheet and an "Errors" sheet for the latest run of one
+// entity, scoped to the connected company. Each row carries the reason plus every column
+// of the original upload, so the file can be corrected and re-uploaded directly.
+export async function buildIssueReport(entityId: string): Promise<{ buffer: Buffer; skipped: number; failed: number }> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const entityType = ID_TO_ENTITY_TYPE[entityId];
+  if (!entityType) {
+    const err = new Error(`Unknown entity: ${entityId}`);
+    (err as any).statusCode = 400;
+    throw err;
+  }
+
+  const company = getSessionCompany();
+  if (!company) {
+    const err = new Error('No FreshBooks connection for this session. Connect on the Connect page.');
+    (err as any).statusCode = 409;
+    throw err;
+  }
+
+  // Most recent phase for this entity belonging to this company.
+  const phase = await prisma.migrationPhase.findFirst({
+    where:   { entity: entityType as any, run: { token: { accountId: company.accountId } } },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      records: {
+        where:   { status: { in: ['SKIPPED', 'FAILED'] } },
+        orderBy: { sourceRow: 'asc' },
+        include: { errors: { orderBy: { attempt: 'desc' }, take: 1 } },
+      },
+    },
+  });
+
+  const records = phase?.records ?? [];
+  const skipped = records.filter(r => r.status === 'SKIPPED');
+  const failed  = records.filter(r => r.status === 'FAILED');
+
+  const toSheet = (rows: typeof records, reasonHeader: string) => {
+    if (rows.length === 0) {
+      return XLSX.utils.aoa_to_sheet([['(none)']]);
+    }
+    // Union of every original column across the rows, so nothing is dropped when
+    // different rows carry different keys.
+    const cols = [...new Set(rows.flatMap(r => Object.keys((r.sourcePayload ?? {}) as object)))];
+    const out = rows.map(r => {
+      const payload = (r.sourcePayload ?? {}) as Record<string, any>;
+      const row: Record<string, any> = {
+        source_row:   r.sourceRow,
+        identifier:   r.naturalKey ?? '',
+        [reasonHeader]: r.errors[0]?.message ?? (r.status === 'SKIPPED' ? 'already exists in FreshBooks' : 'Unknown error'),
+      };
+      for (const c of cols) row[c] = payload[c] ?? '';
+      return row;
+    });
+    return XLSX.utils.json_to_sheet(out, { header: ['source_row', 'identifier', reasonHeader, ...cols] });
+  };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, toSheet(skipped, 'skip_reason'), 'Skipped');
+  XLSX.utils.book_append_sheet(wb, toSheet(failed,  'error'),       'Errors');
+
+  return {
+    buffer:  XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }),
+    skipped: skipped.length,
+    failed:  failed.length,
+  };
+}
+
 // ── Frontend entity ID → runMigration() service key ──────────────────────────
 const ID_TO_SERVICE_KEY: Record<string, string> = {
   'clients':          'clients',

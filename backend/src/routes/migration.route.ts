@@ -20,12 +20,14 @@ import {
   runDeleteAllItems,
   runGetMigrationStatus,
   runCancelMigration,
+  runDownloadIssueReport,
 } from '../controllers/migration.controller.js';
 
 const router = Router();
 router.use(requireAppAuth);
 
 router.get('/status',            runGetMigrationStatus);
+router.get('/report/:entity',    runDownloadIssueReport);
 router.post('/cancel/:entity',   runCancelMigration);
 router.post('/clients',          runMigrateClients);
 router.post('/items',            runMigrateItems);
