@@ -39,12 +39,25 @@ function extractUser(req: Request): string | null {
 async function withSession<T>(req: Request, fn: (tokenId: number | null) => Promise<T>): Promise<T> {
   const tokenId    = tid(req);
   const triggeredBy = extractUser(req);
-  return tokenId ? runWithToken(tokenId, () => fn(tokenId), triggeredBy) : fn(null);
+
+  // Fail closed. Without a session there is no AsyncLocalStorage context, so every
+  // getToken() inside would fall back to "most recently created active token" — i.e.
+  // whichever company connected last, possibly another client's. That is how data
+  // ends up pushed into the wrong FreshBooks account. Refuse instead of guessing.
+  if (!tokenId) {
+    const err = new Error(
+      'No FreshBooks connection for this session. Reconnect on the Connect page before pushing.'
+    );
+    (err as any).statusCode = 401;
+    throw err;
+  }
+
+  return runWithToken(tokenId, () => fn(tokenId), triggeredBy);
 }
 
 export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateClients(t))); });
 export const runMigrateItems           = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateItems(t))); });
-export const runDeleteAllItems         = wrap(async (_req: Request, res: Response) => { res.json(await deleteAllItems()); });
+export const runDeleteAllItems         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, () => deleteAllItems())); });
 export const runMigrateVendors         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateVendors(t))); });
 export const runMigrateExpenses        = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateExpenses(t))); });
 export const runMigrateExpenseCategories = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateExpenseCategories(t))); });

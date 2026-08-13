@@ -33,9 +33,18 @@ const tid = (req: Request) => (req as any).sessionTokenId as number | null ?? nu
 
 // Every FreshBooks API call runs inside runWithToken() so it uses the requesting
 // session's account — not the shared isCurrent global which could belong to anyone.
+//
+// Fail closed when there is no session: running fn() bare leaves no AsyncLocalStorage
+// context, so getToken() would fall back to the newest active token — reading from, or
+// writing to, whichever company happened to connect last.
 async function ws<T>(req: Request, fn: () => Promise<T>): Promise<T> {
   const tokenId = tid(req);
-  return tokenId ? runWithToken(tokenId, fn) : fn();
+  if (!tokenId) {
+    const err = new Error('No FreshBooks connection for this session. Reconnect on the Connect page.');
+    (err as any).statusCode = 401;
+    throw err;
+  }
+  return runWithToken(tokenId, fn);
 }
 
 export const getIdentity = wrap(async (req: Request, res: Response) => {
