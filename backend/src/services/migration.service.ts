@@ -254,7 +254,10 @@ async function runMigration(
         status:      'RUNNING',
         startedAt:   new Date(),
         heartbeatAt: new Date(),
-        tokenId:     tokenId ?? null,
+        // Callers don't forward tokenId (runMigration's 7th arg), so fall back to the
+        // session context — the same source triggeredBy uses. Without this the run is
+        // recorded with no company, making a mis-targeted push impossible to trace.
+        tokenId:     tokenId ?? getSessionTokenId(),
         triggeredBy: getSessionTriggeredBy(),
       },
     });
