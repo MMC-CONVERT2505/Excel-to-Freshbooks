@@ -44,11 +44,14 @@ async function withSession<T>(req: Request, fn: (tokenId: number | null) => Prom
   // getToken() inside would fall back to "most recently created active token" — i.e.
   // whichever company connected last, possibly another client's. That is how data
   // ends up pushed into the wrong FreshBooks account. Refuse instead of guessing.
+  // 409, never 401: the frontend treats 401 as "app login expired" and force-logs-out.
+  // A user who is correctly logged in but has not connected FreshBooks yet must be told
+  // to connect, not thrown back to the login page.
   if (!tokenId) {
     const err = new Error(
-      'No FreshBooks connection for this session. Reconnect on the Connect page before pushing.'
+      'No FreshBooks connection for this session. Connect on the Connect page before pushing.'
     );
-    (err as any).statusCode = 401;
+    (err as any).statusCode = 409;
     throw err;
   }
 

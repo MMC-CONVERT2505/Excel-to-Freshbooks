@@ -39,9 +39,11 @@ const tid = (req: Request) => (req as any).sessionTokenId as number | null ?? nu
 // writing to, whichever company happened to connect last.
 async function ws<T>(req: Request, fn: () => Promise<T>): Promise<T> {
   const tokenId = tid(req);
+  // 409, never 401 — the frontend force-logs-out on 401, and "FreshBooks not connected"
+  // is a different condition from "app login expired".
   if (!tokenId) {
-    const err = new Error('No FreshBooks connection for this session. Reconnect on the Connect page.');
-    (err as any).statusCode = 401;
+    const err = new Error('No FreshBooks connection for this session. Connect on the Connect page.');
+    (err as any).statusCode = 409;
     throw err;
   }
   return runWithToken(tokenId, fn);

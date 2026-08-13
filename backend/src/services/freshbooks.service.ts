@@ -98,12 +98,14 @@ async function getToken() {
   // Previously this fell through to "isCurrent, else newest active token" — i.e.
   // whichever company connected last, possibly another client's — which silently
   // sent one customer's data into another customer's account. Refuse instead.
+  // 409, not 401 — 401 makes the frontend clear the app JWT and bounce to /login, which
+  // is wrong for a user who is logged in but has not connected FreshBooks yet.
   if (!token) {
     const err = new Error(
-      'No FreshBooks session for this request. Reconnect on the Connect page — ' +
+      'No FreshBooks session for this request. Connect on the Connect page — ' +
       'refusing to guess which company this belongs to.'
     );
-    (err as any).statusCode = 401;
+    (err as any).statusCode = 409;
     throw err;
   }
 
