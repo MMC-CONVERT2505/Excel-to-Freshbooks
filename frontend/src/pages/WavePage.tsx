@@ -242,7 +242,7 @@ export default function WavePage() {
 
 // ── per-entity card ───────────────────────────────────────────────────────────
 function EntityCard({ entityId, workflow }: { entityId: string; workflow: string }) {
-  const { entities, pushMap, resultMap, pushEntity, canPush, startTimes } = useMigration();
+  const { entities, pushMap, resultMap, pushEntity, canPush } = useMigration();
   const { fbConnected, uploaded, setUploaded } = useApp();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -260,8 +260,6 @@ function EntityCard({ entityId, workflow }: { entityId: string; workflow: string
   const realRes  = resultMap[entityId];
   const fileInfo = uploaded[entityId];
   const { ok: depsOk, missing } = canPush(entityId);
-  const startT   = startTimes[entityId];
-  const elapsed  = startT && entity.status === 'running' ? `${((Date.now() - startT) / 1000).toFixed(1)}s` : null;
   const canGo    = fbConnected && depsOk && (workflow !== 'excel' || !!fileInfo) && entity.status !== 'running';
   const hint     = FILE_HINTS[entityId];
 
@@ -409,7 +407,6 @@ function EntityCard({ entityId, workflow }: { entityId: string; workflow: string
           </div>
           <div className="wc__prog-meta">
             <span>{ps.done.toLocaleString()} / {ps.total.toLocaleString()}</span>
-            {elapsed && <span>{elapsed} elapsed</span>}
           </div>
         </div>
       )}

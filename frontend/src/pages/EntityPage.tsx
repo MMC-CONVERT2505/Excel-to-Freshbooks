@@ -19,7 +19,7 @@ export default function EntityPage() {
   const { entityId, workflow = 'excel' } = useParams<{ entityId: string; workflow: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { entities, pushMap, resultMap, pushEntity, cancelEntity, canPush, startTimes, sessionPushed, statusChecked } = useMigration();
+  const { entities, pushMap, resultMap, pushEntity, cancelEntity, canPush, sessionPushed, statusChecked } = useMigration();
   const { fbConnected, uploaded, setUploaded } = useApp();
   const { toast } = useToast();
 
@@ -29,7 +29,6 @@ export default function EntityPage() {
   const [dryReport, setDryReport] = useState<ExcelDryRunReport | null>(null);
   const [errExp, setErrExp] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [, setTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadAreaRef = useRef<HTMLDivElement>(null);
 
@@ -38,13 +37,6 @@ export default function EntityPage() {
   const [fbCountsLoading, setFbCountsLoading] = useState(false);
 
   const entity = entities.find(e => e.id === entityId);
-
-  // Tick every 500 ms while running so elapsed time updates
-  useEffect(() => {
-    if (entity?.status !== 'running') return;
-    const iv = setInterval(() => setTick(t => t + 1), 500);
-    return () => clearInterval(iv);
-  }, [entity?.status]);
 
   // Handle ?action= from sidebar nav
   useEffect(() => {
@@ -74,10 +66,6 @@ export default function EntityPage() {
   const depList = (DEPS[entity.id] || []).map(depId => ({
     id: depId, dep: entities.find(x => x.id === depId),
   }));
-
-  const startT  = startTimes[entity.id];
-  const elapsed = startT && entity.status === 'running'
-    ? `${((Date.now() - startT) / 1000).toFixed(1)}s` : null;
 
   const canGo = fbConnected && depsOk && statusChecked
     && (workflow !== 'excel' || !!fileInfo)
@@ -413,7 +401,6 @@ export default function EntityPage() {
                       </>
                     : <span className="ep-run__waiting">Starting…</span>
                   }
-                  {elapsed && <span className="ep-run__elapsed">{elapsed} elapsed</span>}
                 </div>
 
                 {/* glittery progress bar */}

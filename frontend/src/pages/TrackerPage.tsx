@@ -42,7 +42,7 @@ export default function TrackerPage() {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { toast } = useToast();
-  const { entities, pushMap, resultMap, pushEntity, runAll, sessionPushed, startTimes } = useMigration();
+  const { entities, pushMap, resultMap, pushEntity, runAll, sessionPushed } = useMigration();
 
   const [search,   setSearch]   = useState('');
   const [filter,   setFilter]   = useState('all');
@@ -169,9 +169,6 @@ export default function TrackerPage() {
                 const isActive     = e.status === 'done' || e.status === 'error' || e.status === 'running';
                 const isResumedFromDB = e.status === 'running' && !sessionPushed.has(e.id);
 
-                const startT     = startTimes[e.id];
-                const elapsedSec = startT && e.status === 'running'
-                  ? `${((Date.now() - startT) / 1000).toFixed(1)}s` : null;
 
                 return (
                   <Fragment key={e.id}>
@@ -251,7 +248,6 @@ export default function TrackerPage() {
                         {e.status === 'running'
                           ? <span className="tbl-dur-running">
                               <svg className="tbl-spin-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="9" strokeOpacity=".2"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
-                              {elapsedSec ?? '…'}
                             </span>
                           : e.dur && e.dur !== '-' && e.dur !== '–'
                             ? <span className="tbl-dur">{e.dur}</span>
