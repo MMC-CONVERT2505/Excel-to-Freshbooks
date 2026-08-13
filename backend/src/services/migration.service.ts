@@ -2172,21 +2172,22 @@ export async function getMigrationStatus(tokenId?: number | null) {
     const tok = await prisma.freshbooksToken.findUnique({ where: { id: tokenId }, select: { accountId: true } });
     scopeAccountId = tok?.accountId ?? null;
   }
+  // No session token means we cannot say whose history this is. Falling back to the
+  // isCurrent global would show whichever company connected last — another client's
+  // migration history. Return nothing instead of guessing.
   if (!scopeAccountId) {
-    const currentToken = await prisma.freshbooksToken.findFirst({ where: { isCurrent: true }, select: { accountId: true } });
-    scopeAccountId = currentToken?.accountId ?? null;
+    return { run: null, phases: [] };
   }
 
   const allPhases = await prisma.migrationPhase.findMany({
     where: {
       status: { in: ['COMPLETED', 'PARTIAL', 'FAILED', 'RUNNING'] },
-      // Match runs for this FreshBooks account OR legacy runs with no tokenId
-      ...(scopeAccountId ? {
-        OR: [
-          { run: { token: { accountId: scopeAccountId } } },
-          { run: { tokenId: null } },
-        ],
-      } : {}),
+      // Strictly this company's runs. This previously also matched
+      // `{ run: { tokenId: null } }` as a "legacy runs" allowance — but tokenId was
+      // never populated (fixed separately), so every run in the table was null and
+      // every company saw every other company's history. Worse, the newest phase per
+      // entity wins below, so another company's run could mask the correct one.
+      run: { token: { accountId: scopeAccountId } },
     },
     orderBy: { createdAt: 'desc' },
     include: {
