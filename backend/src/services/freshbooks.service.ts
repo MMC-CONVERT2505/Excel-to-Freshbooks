@@ -4,7 +4,41 @@ import prisma from '../lib/prisma.js';
 
 const BASE = 'https://api.freshbooks.com';
 
+// ── Global FreshBooks rate limiter ───────────────────────────────────────────
+// FreshBooks allows 250 requests/minute per account. Without a shared budget, two
+// modules running at once (e.g. vendors + expenses) each fire CONCURRENCY workers —
+// 50 in flight — which blows the cap. Records then exhaust their 4 retries and fail
+// permanently, so the run has to be repeated.
+//
+// This is not a slowdown. Hammering past the cap costs 2s/4s/8s backoffs on every
+// rejected call plus a re-run for whatever still failed; a steady stream just under
+// the cap finishes sooner in wall-clock time and loses nothing.
+//
+// Token bucket. BURST must stay small: a bucket that holds a full minute's worth lets
+// that entire minute fire at once and then refills on top of it, so the first 60s window
+// sees BURST + RATE calls. The invariant is BURST + RATE <= 250, hence 20 + 225 = 245.
+// Override with FB_RATE_LIMIT_PER_MIN if FreshBooks ever changes the cap.
+const _fbRl = (() => {
+  const RATE_PER_MIN = Number(process.env.FB_RATE_LIMIT_PER_MIN) || 225;
+  const BURST = 20;
+  const RATE  = RATE_PER_MIN / 60_000; // tokens per ms
+  let tokens = BURST;
+  let lastMs = Date.now();
+  return {
+    async acquire() {
+      for (;;) {
+        const now = Date.now();
+        tokens = Math.min(BURST, tokens + (now - lastMs) * RATE);
+        lastMs = now;
+        if (tokens >= 1) { tokens -= 1; return; }
+        await new Promise<void>(r => setTimeout(r, Math.ceil((1 - tokens) / RATE)));
+      }
+    },
+  };
+})();
+
 const fbAxios = axios.create();
+fbAxios.interceptors.request.use(async config => { await _fbRl.acquire(); return config; });
 
 // ── Per-request session context ─────────────────────────────────────────────
 // Each migration runs inside runWithToken(), which stores the session's account
