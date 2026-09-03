@@ -116,10 +116,14 @@ function toRow(rawRows: any[]): Row[] {
     for (const key of Object.keys(row)) {
       const val = row[key];
       if (val instanceof Date) {
-        out[key] = val.toISOString().split('T')[0];
+        // A date-formatted cell that's blank or malformed comes through as an Invalid
+        // Date (instanceof Date is still true), and .toISOString() throws RangeError:
+        // Invalid time value -- which is exactly what surfaced as "Upload failed:
+        // Invalid time value" with no row number, since it crashed before validation.
+        out[key] = isNaN(val.getTime()) ? '' : val.toISOString().split('T')[0];
       } else if (typeof val === 'number' && val > 40000 && val < 60000 && key.toLowerCase().includes('date')) {
         const d = new Date(Math.round((val - 25569) * 86400 * 1000));
-        out[key] = d.toISOString().split('T')[0];
+        out[key] = isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
       } else {
         out[key] = String(val);
       }
