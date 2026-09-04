@@ -288,10 +288,25 @@ async function runMigration(
     throw err;
   }
 
-  // Create or reuse MigrationRun
+  // Create or reuse MigrationRun (effectiveTokenId computed above for the duplicate guard).
+  // findFirst({ status: 'RUNNING' }) with no scoping used to reuse ANY user's active run —
+  // company A and company B pushing at the same time would land on the SAME MigrationRun.
+  // The phase upsert below is unique on (runId, entity), so the second user's push would
+  // overwrite the first user's phase totals mid-flight, and deleteMany() would wipe the
+  // first user's already-created MigrationRecord rows out from under their still-running
+  // loop. Both loops then insert records against the same phaseId; sourceRow collides
+  // between the two independent uploads and the unique (phaseId, sourceRow) constraint
+  // throws inside processRow() below (now caught defensively there, but this is the
+  // actual root cause to fix). That is the exact "one user's frontend shows the other
+  // user's numbers, and their own push dies partway through" failure.
+  //
+  // Scope the reuse to this token so two concurrent users can never share a run. With no
+  // token to scope by, always create fresh rather than risk matching a legacy run.
   let activeRun = runId
     ? await prisma.migrationRun.findUnique({ where: { id: runId } })
-    : await prisma.migrationRun.findFirst({ where: { status: 'RUNNING' } });
+    : effectiveTokenId != null
+      ? await prisma.migrationRun.findFirst({ where: { status: 'RUNNING', tokenId: effectiveTokenId } })
+      : null;
 
   if (!activeRun) {
     activeRun = await prisma.migrationRun.create({
@@ -299,10 +314,7 @@ async function runMigration(
         status:      'RUNNING',
         startedAt:   new Date(),
         heartbeatAt: new Date(),
-        // Callers don't forward tokenId (runMigration's 7th arg), so fall back to the
-        // session context — the same source triggeredBy uses. Without this the run is
-        // recorded with no company, making a mis-targeted push impossible to trace.
-        tokenId:     tokenId ?? getSessionTokenId(),
+        tokenId:     effectiveTokenId,
         triggeredBy: getSessionTriggeredBy(),
       },
     });
@@ -330,15 +342,28 @@ async function runMigration(
   const processRow = async (row: Row, i: number) => {
     const label = `${tag} (${i + 1}/${rows.length}) ${getLabel(row)}`;
 
-    const record = await prisma.migrationRecord.create({
-      data: {
-        phaseId:       phase.id,
-        sourceRow:     i + 2,
-        naturalKey:    getLabel(row) || undefined,
-        sourcePayload: row as any,
-        status:        'PENDING',
-      },
-    });
+    // Defense in depth: the run-scoping fix above should make a (phaseId, sourceRow)
+    // collision unreachable in normal operation, but this create() used to sit outside
+    // any try/catch — an unhandled unique-constraint violation here rejected the whole
+    // Promise.all for the batch, crashing the entire migration for whichever request
+    // lost the race, not just this one row.
+    let record;
+    try {
+      record = await prisma.migrationRecord.create({
+        data: {
+          phaseId:       phase.id,
+          sourceRow:     i + 2,
+          naturalKey:    getLabel(row) || undefined,
+          sourcePayload: row as any,
+          status:        'PENDING',
+        },
+      });
+    } catch (err: any) {
+      console.error(`${label} → ⚠️ could not create tracking record, skipping row: ${err.message}`);
+      result.failed++;
+      result.errors.push({ row: i + 2, error: `Tracking record conflict: ${err.message}` });
+      return;
+    }
 
     if (isDuplicate(row)) {
       result.skipped++;
