@@ -11,6 +11,7 @@ import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import ConnectPage from './pages/ConnectPage';
+import FilesPage from './pages/FilesPage';
 import UploadPage from './pages/UploadPage';
 import TrackerPage from './pages/TrackerPage';
 import QAPage from './pages/QAPage';
@@ -116,6 +117,7 @@ export default function App() {
         <Route path="/admin"          element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
         <Route path="/:workflow"      element={<Navigate to="connect" replace />} />
+        <Route path="/:workflow/files"   element={<RequireAuth><AppLayout><FilesPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/connect" element={<RequireAuth><AppLayout><ConnectPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/upload"  element={<RequireAuth><AppLayout><UploadPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/tracker" element={<RequireAuth><AppLayout><TrackerPage /></AppLayout></RequireAuth>} />

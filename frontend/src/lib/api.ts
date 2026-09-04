@@ -1,6 +1,7 @@
 import type { Issue } from '../data/entities';
 import { getSessionId } from './session.js';
 import { getAppToken, clearAppToken } from './appAuth.js';
+import { getActiveFileId } from './activeFile.js';
 
 function handleUnauthorized() {
   clearAppToken();
@@ -36,12 +37,17 @@ export type MigrationResult = {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const sessionId = getSessionId();
   const appToken  = getAppToken();
+  // Tells the backend which named file this work belongs to, so the run is grouped
+  // under it. The server re-verifies it against the user AND the connected company
+  // before trusting it, so a stale value here can't misfile a run.
+  const fileId    = getActiveFileId();
   const merged: RequestInit = {
     ...init,
     headers: {
       ...(init?.headers as Record<string, string> | undefined),
       ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
       ...(appToken  ? { 'Authorization': `Bearer ${appToken}` } : {}),
+      ...(fileId    ? { 'X-File-ID': String(fileId) } : {}),
     },
   };
   const res = await fetch(`${API_BASE}${path}`, merged);
@@ -60,6 +66,64 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
   return res.json() as Promise<T>;
+}
+
+/* ── Migration files (named containers for one client's work) ───────────────── */
+
+export type MigrationFileEntry = {
+  id:        number;
+  name:      string;
+  createdAt: string;
+  connected: boolean;
+  company:   string | null;
+  accountId: string | null;
+  tokenId:   number | null;
+  runCount?: number;
+};
+
+export type FileRunPhase = {
+  entity: string; status: string; totalRecords: number;
+  successCount: number; failedCount: number; skippedCount: number;
+  durationMs: number | null; startedAt: string | null; completedAt: string | null;
+};
+
+export type FileHistory = {
+  file: { id: number; name: string };
+  runs: Array<{
+    id: number; status: string; startedAt: string; completedAt: string | null;
+    triggeredBy: string | null; company: string | null;
+    phases: FileRunPhase[];
+    totals: { total: number; success: number; failed: number; skipped: number };
+  }>;
+};
+
+export function listFiles(): Promise<{ files: MigrationFileEntry[] }> {
+  return api('/files');
+}
+
+export function createFile(name: string): Promise<MigrationFileEntry> {
+  return api('/files', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ name }),
+  });
+}
+
+export function getFile(id: number): Promise<MigrationFileEntry> {
+  return api(`/files/${id}`);
+}
+
+// Links the file to whichever FreshBooks company this session is connected to.
+export function connectFile(id: number): Promise<MigrationFileEntry> {
+  return api(`/files/${id}/connect`, { method: 'PUT' });
+}
+
+export function getFileHistory(id: number): Promise<FileHistory> {
+  return api(`/files/${id}/history`);
+}
+
+export function deleteFile(id: number): Promise<{ message: string; note?: string }> {
+  return api(`/files/${id}`, { method: 'DELETE' });
 }
 
 async function fileToBase64(file: File): Promise<string> {

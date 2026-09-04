@@ -61,8 +61,18 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
 
       <nav className="sidebar__nav">
 
-        {/* connect */}
+        {/* files — the dashboard of named migrations */}
         <div className="nav-section">
+          <button
+            className={`nav-item${location.pathname === `/${workflow}/files` ? ' active' : ''}`}
+            onClick={() => go('files')}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            Your Files
+          </button>
+
           <button
             className={`nav-item${location.pathname === `/${workflow}/connect` ? ' active' : ''}`}
             onClick={() => go('connect')}
