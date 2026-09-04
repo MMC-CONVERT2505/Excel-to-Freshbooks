@@ -9,6 +9,7 @@ import migrationRouter from './routes/migration.route.js';
 import parserRouter from './routes/parser.route.js';
 import excelRouter from './routes/excel.route.js';
 import adminRouter from './routes/admin.route.js';
+import fileRouter from './routes/file.route.js';
 import { handleCallback } from './controllers/auth.controller.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { resolveSession } from './middleware/session.js';
@@ -36,6 +37,7 @@ app.use('/migrate', migrationRouter);
 app.use('/parse', parserRouter);
 app.use('/api/excel', excelRouter);
 app.use('/api/admin', adminRouter);
+app.use('/files', fileRouter);
 app.get('/callback', handleCallback);
 app.get(/\/oauth-callback/, handleCallback);  // matches /oauth-callback and /*/oauth-callback
 

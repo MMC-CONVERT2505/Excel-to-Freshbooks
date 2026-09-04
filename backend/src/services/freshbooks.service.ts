@@ -51,10 +51,17 @@ interface SessionCtx {
   businessId:   string;
   companyLabel: string;
   triggeredBy?: string | null;
+  // The named file this work belongs to, so every run can be grouped under it.
+  fileId?:      number | null;
 }
 const sessionCtx = new AsyncLocalStorage<SessionCtx>();
 
-export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, triggeredBy?: string | null): Promise<T> {
+export async function runWithToken<T>(
+  tokenId: number,
+  fn: () => Promise<T>,
+  triggeredBy?: string | null,
+  fileId?: number | null,
+): Promise<T> {
   const token = await prisma.freshbooksToken.findUnique({ where: { id: tokenId } });
   if (!token) throw new Error(`Token ${tokenId} not found in DB`);
 
@@ -77,8 +84,14 @@ export async function runWithToken<T>(tokenId: number, fn: () => Promise<T>, tri
     businessId:   token.businessId   || '',
     companyLabel: token.companyLabel || '(unnamed)',
     triggeredBy:  triggeredBy ?? null,
+    fileId:       fileId ?? null,
   };
   return sessionCtx.run(ctx, fn);
+}
+
+// The named file this request belongs to. Null when the caller sent no file.
+export function getSessionFileId(): number | null {
+  return sessionCtx.getStore()?.fileId ?? null;
 }
 
 export function getSessionTokenId(): number | null {

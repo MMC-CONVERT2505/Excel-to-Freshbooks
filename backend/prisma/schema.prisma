@@ -103,6 +103,7 @@ model FreshbooksToken {
   runs          MigrationRun[]    @relation("RunTokens")
   sheets        UploadedSheet[]   @relation("SheetTokens")
   sessions      UserSession[]
+  files         MigrationFile[]   @relation("FileTokens")
 
   @@index([isActive, expiresAt])
   @@index([isCurrent])
@@ -154,6 +155,10 @@ model MigrationRun {
   // Which FreshBooks company this run belongs to
   tokenId       Int?
   token         FreshbooksToken? @relation("RunTokens", fields: [tokenId], references: [id])
+  // Which named file this run belongs to. Nullable so runs made before files
+  // existed (and any run started without an active file) still record cleanly.
+  fileId        Int?
+  file          MigrationFile?   @relation("FileRuns", fields: [fileId], references: [id], onDelete: SetNull)
   // If this run is a retry of an earlier one, link back
   parentRunId   Int?
   parentRun     MigrationRun?  @relation("RunRetries", fields: [parentRunId], references: [id])
@@ -167,6 +172,7 @@ model MigrationRun {
   @@index([status, heartbeatAt])
   @@index([createdAt])
   @@index([tokenId])
+  @@index([fileId])
 }
 
 model MigrationPhase {
@@ -264,6 +270,32 @@ model User {
   passwordHash String
   role         String   @default("user")
   createdAt    DateTime @default(now())
+
+  files        MigrationFile[]
+}
+
+// A named container for one client's migration work. Created by the user first,
+// then connected to a FreshBooks company. Every run made while it is the active
+// file is linked to it, so the dashboard can show file-wise history instead of
+// one flat list keyed only by whichever company happened to be connected.
+model MigrationFile {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  // The FreshBooks company this file is connected to. Nullable because a file is
+  // created first and connected afterwards. SetNull (not Cascade) so revoking a
+  // token never destroys the file or its history.
+  tokenId   Int?
+  token     FreshbooksToken? @relation("FileTokens", fields: [tokenId], references: [id], onDelete: SetNull)
+  runs      MigrationRun[]   @relation("FileRuns")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  // Two users may each have a file called "Acme"; one user may not have two.
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([tokenId])
 }
 
 model MigrationError {

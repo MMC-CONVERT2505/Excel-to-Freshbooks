@@ -23,6 +23,7 @@ import {
   buildIssueReport,
 } from '../services/migration.service.js';
 import { runWithToken, getSessionCompany } from '../services/freshbooks.service.js';
+import prisma from '../lib/prisma.js';
 
 const wrap = (fn: Function) => async (req: Request, res: Response, next: NextFunction) => {
   try { await fn(req, res, next); } catch (err) { next(err); }
@@ -56,6 +57,13 @@ async function withSession<T>(req: Request, fn: (tokenId: number | null) => Prom
     throw err;
   }
 
+  // Which named file this push belongs to, so its run is grouped under that file in
+  // the dashboard. Verified against BOTH the user and the connected company: a file id
+  // from another account, or one pointing at a different company than the session is
+  // connected to, is ignored rather than trusted — otherwise a stale header could file
+  // one company's run under another company's name.
+  const fileId = await resolveActiveFile(req, tokenId);
+
   return runWithToken(tokenId, () => {
     // Record the destination once per actual push. Only for mutating requests — GET
     // /status is polled continuously by the frontend, and logging that flooded the
@@ -65,7 +73,25 @@ async function withSession<T>(req: Request, fn: (tokenId: number | null) => Prom
       console.log(`[PUSH] → company "${co?.label}" (account ${co?.accountId}, token ${tokenId}) by ${triggeredBy ?? 'unknown user'}`);
     }
     return fn(tokenId);
-  }, triggeredBy);
+  }, triggeredBy, fileId);
+}
+
+// Resolves the X-File-ID header to a file this user owns that is connected to this
+// same token. Returns null on any mismatch — a run with no file is fine; a run filed
+// under the wrong company's name is not.
+async function resolveActiveFile(req: Request, tokenId: number): Promise<number | null> {
+  const raw = req.headers['x-file-id'];
+  const id  = Number(Array.isArray(raw) ? raw[0] : raw);
+  if (!id || Number.isNaN(id)) return null;
+
+  const appUserId = (req as any).appUser?.userId;
+  if (!appUserId) return null;
+
+  const file = await prisma.migrationFile.findFirst({
+    where:  { id, userId: Number(appUserId), tokenId },
+    select: { id: true },
+  });
+  return file?.id ?? null;
 }
 
 export const runMigrateClients         = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateClients(t))); });

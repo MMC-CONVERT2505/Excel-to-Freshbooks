@@ -20,6 +20,7 @@ import {
   getJournalEntries, createJournalEntry,
   getSessionTokenId,
   getSessionCompany,
+  getSessionFileId,
   getSessionTriggeredBy,
 } from './freshbooks.service.js';
 
@@ -315,6 +316,7 @@ async function runMigration(
         startedAt:   new Date(),
         heartbeatAt: new Date(),
         tokenId:     effectiveTokenId,
+        fileId:      getSessionFileId(),
         triggeredBy: getSessionTriggeredBy(),
       },
     });
@@ -2439,6 +2441,7 @@ async function flushCustomPhase(
           startedAt:   new Date(),
           completedAt: new Date(),
           tokenId:     effectiveTokenId,
+          fileId:      getSessionFileId(),
           triggeredBy: getSessionTriggeredBy(),
         },
       });
