@@ -37,7 +37,10 @@ app.use('/migrate', migrationRouter);
 app.use('/parse', parserRouter);
 app.use('/api/excel', excelRouter);
 app.use('/api/admin', adminRouter);
-app.use('/files', fileRouter);
+// Under /api like the other JSON routers. Mounted at bare /files it collided with the
+// frontend's own /:workflow/files page: nginx has no proxy rule for it, so the SPA
+// fallback served index.html and the fetch got "<!doctype" instead of JSON.
+app.use('/api/files', fileRouter);
 app.get('/callback', handleCallback);
 app.get(/\/oauth-callback/, handleCallback);  // matches /oauth-callback and /*/oauth-callback
 

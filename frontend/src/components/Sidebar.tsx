@@ -88,6 +88,10 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             Your Files
           </button>
 
+          {/* Everything below belongs to a file: it decides which company the work
+              targets. With no file open there is nothing for these to act on, so they
+              stay hidden until one is opened from the dashboard. */}
+          {activeFile && (<>
           <button
             className={`nav-item${location.pathname === `/${workflow}/connect` ? ' active' : ''}`}
             onClick={() => go('connect')}
@@ -121,6 +125,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             </svg>
             Fetch from FreshBooks
           </button>
+          </>)}
 
           {/* admin panel — only for admin role */}
           {appUser?.role === 'admin' && (
@@ -136,6 +141,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           )}
 
           {/* download all templates */}
+          {activeFile && (
           <button className="nav-item sb-tpl-btn" onClick={() => downloadAllTemplates(entities)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -144,9 +150,11 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             </svg>
             Download All Templates
           </button>
+          )}
         </div>
 
-        {/* entities */}
+        {/* entities — only once a file is open, same reason as above */}
+        {activeFile && (
         <div className="nav-section">
           <div className="nav-section__label">Entities</div>
           {ENTITY_ORDER.map(id => {
@@ -163,6 +171,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             );
           })}
         </div>
+        )}
 
       </nav>
 
