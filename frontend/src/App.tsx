@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useSearchParams, useNavigate, useParams, useLo
 import { useState, useEffect, useRef } from 'react';
 import { setSessionId } from './lib/session.js';
 import { isLoggedIn } from './lib/appAuth.js';
+import { getActiveFileId } from './lib/activeFile.js';
 import { useApp } from './context/AppContext';
 import { useToast } from './context/ToastContext';
 import { MigrationProvider } from './context/MigrationContext';
@@ -45,6 +46,18 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Migration pages need a file to work inside — that file is what decides which
+// company the push targets and which history the run is grouped under. Without one
+// selected, send the user back to the dashboard to pick or create it rather than
+// letting them upload and push into no file at all.
+function RequireFile({ children }: { children: React.ReactNode }) {
+  const { workflow = 'excel' } = useParams<{ workflow: string }>();
+  if (!getActiveFileId()) {
+    return <Navigate to={`/${workflow}/files`} replace />;
+  }
+  return <>{children}</>;
+}
+
 function OAuthCallback() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -66,8 +79,10 @@ function OAuthCallback() {
     if (auth === 'connected') {
       setFbConnected(true);
       if (name) setCompanyName(decodeURIComponent(name));
-      toast('success', 'FreshBooks connected!', 'Your account is linked — all functions are unlocked.');
-      navigate(`/${workflow}/connect?status=connected`, { replace: true });
+      // Back to the dashboard, not the connect page: the connection still has to be
+      // linked to a file before any function opens, and that button lives on the file.
+      toast('success', 'FreshBooks connected!', 'Ab is connection ko apni file se link karo.');
+      navigate(`/${workflow}/files?status=connected`, { replace: true });
     } else if (auth === 'select') {
       // params.get() already URL-decodes the value; re-encode so the next page can safely parse it
       const biz = params.get('businesses') || '';
@@ -116,17 +131,17 @@ export default function App() {
         <Route path="/login"          element={<LoginPage />} />
         <Route path="/admin"          element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
-        <Route path="/:workflow"      element={<Navigate to="connect" replace />} />
+        <Route path="/:workflow"      element={<Navigate to="files" replace />} />
         <Route path="/:workflow/files"   element={<RequireAuth><AppLayout><FilesPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/connect" element={<RequireAuth><AppLayout><ConnectPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/upload"  element={<RequireAuth><AppLayout><UploadPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/tracker" element={<RequireAuth><AppLayout><TrackerPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/qa"      element={<RequireAuth><AppLayout><QAPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/entity/:entityId" element={<RequireAuth><AppLayout><EntityPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/wave/:waveId"     element={<RequireAuth><AppLayout><WavePage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/history"            element={<RequireAuth><AppLayout><HistoryPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/estimate-items"    element={<RequireAuth><AppLayout><EstimateLinesPage /></AppLayout></RequireAuth>} />
-        <Route path="/:workflow/fetch"             element={<RequireAuth><AppLayout><FetchPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/upload"  element={<RequireAuth><RequireFile><AppLayout><UploadPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/tracker" element={<RequireAuth><RequireFile><AppLayout><TrackerPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/qa"      element={<RequireAuth><RequireFile><AppLayout><QAPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/entity/:entityId" element={<RequireAuth><RequireFile><AppLayout><EntityPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/wave/:waveId"     element={<RequireAuth><RequireFile><AppLayout><WavePage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/history"            element={<RequireAuth><RequireFile><AppLayout><HistoryPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/estimate-items"    element={<RequireAuth><RequireFile><AppLayout><EstimateLinesPage /></AppLayout></RequireFile></RequireAuth>} />
+        <Route path="/:workflow/fetch"             element={<RequireAuth><RequireFile><AppLayout><FetchPage /></AppLayout></RequireFile></RequireAuth>} />
         <Route path="*"               element={<Navigate to="/" replace />} />
       </Routes>
     </AuthCheck>

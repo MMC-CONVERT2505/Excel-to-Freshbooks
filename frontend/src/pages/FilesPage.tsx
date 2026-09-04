@@ -66,6 +66,16 @@ export default function FilesPage() {
       toast('success', 'Connected', `"${updated.name}" → ${updated.company ?? 'FreshBooks'}`);
       await refresh();
     } catch (err: any) {
+      // The backend returns this when the session has no FreshBooks connection yet.
+      // Linking needs one to exist first, so send them to do that rather than just
+      // reporting the error and leaving them to work out the next step.
+      if (/Connect FreshBooks first/i.test(err.message ?? '')) {
+        setActiveFileId(f.id);
+        setActiveId(f.id);
+        toast('warning', 'FreshBooks not connected', 'Pehle FreshBooks connect karo, phir file link ho jayegi.');
+        navigate(`/${workflow}/connect`);
+        return;
+      }
       toast('error', 'Could not connect', err.message);
     } finally {
       setBusyId(null);

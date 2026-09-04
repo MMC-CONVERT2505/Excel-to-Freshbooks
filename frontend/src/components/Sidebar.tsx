@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { downloadAllStyledTemplates } from '../lib/templateExcel';
+import { getFile, type MigrationFileEntry } from '../lib/api';
+import { getActiveFileId } from '../lib/activeFile.js';
 import type { Workflow } from '../context/AppContext';
 import { useMigration } from '../context/MigrationContext';
 import { templateFor } from '../data/entities';
@@ -51,6 +54,18 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
   }
 
   const wfName = workflow === 'qbd' ? 'QBD → FreshBooks' : 'Excel → FreshBooks';
+
+  // Name of the file currently being worked in, shown in the footer indicator.
+  const [activeFile, setActiveFile] = useState<MigrationFileEntry | null>(null);
+  useEffect(() => {
+    const id = getActiveFileId();
+    if (!id) { setActiveFile(null); return; }
+    let cancelled = false;
+    getFile(id)
+      .then(f => { if (!cancelled) setActiveFile(f); })
+      .catch(() => { if (!cancelled) setActiveFile(null); });
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
@@ -158,8 +173,14 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           </svg>
         </div>
         <div className="wf-indicator__meta">
-          <span className="lbl">Active workflow</span>
-          <b>{wfName}</b>
+          {/* Which file is open matters more than which workflow — it decides where a
+              push lands. Keep it visible on every page so nobody pushes into the wrong
+              client's file without noticing. */}
+          <span className="lbl">{activeFile ? 'Active file' : 'Active workflow'}</span>
+          <b title={activeFile?.name ?? wfName}>{activeFile?.name ?? wfName}</b>
+          {activeFile?.company && (
+            <span className="lbl" style={{ opacity: .8 }}>{activeFile.company}</span>
+          )}
         </div>
         <button className="wf-indicator__change" title="Change workflow" onClick={onChangeWf}>
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -7,10 +7,12 @@ export default function Landing() {
 
   function choose(wf: Workflow) {
     localStorage.setItem('oauth_workflow', wf);
+    // Land on the files dashboard, not straight into Connect. A FreshBooks
+    // connection has to belong to a named file, so the file comes first.
     if (!isLoggedIn()) {
-      navigate(`/login?next=/${wf}/connect`);
+      navigate(`/login?next=/${wf}/files`);
     } else {
-      navigate(`/${wf}/connect`);
+      navigate(`/${wf}/files`);
     }
   }
 
