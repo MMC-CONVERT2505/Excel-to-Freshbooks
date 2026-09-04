@@ -81,7 +81,7 @@ function OAuthCallback() {
       if (name) setCompanyName(decodeURIComponent(name));
       // Back to the dashboard, not the connect page: the connection still has to be
       // linked to a file before any function opens, and that button lives on the file.
-      toast('success', 'FreshBooks connected!', 'Ab is connection ko apni file se link karo.');
+      toast('success', 'FreshBooks connected!', 'Now link this connection to your file.');
       navigate(`/${workflow}/files?status=connected`, { replace: true });
     } else if (auth === 'select') {
       // params.get() already URL-decodes the value; re-encode so the next page can safely parse it
