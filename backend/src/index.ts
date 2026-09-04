@@ -33,14 +33,17 @@ app.use(express.json({ limit: '75mb' }));
 app.use(resolveSession);
 app.use('/auth', authRouter);
 app.use('/freshbooks', freshbooksRouter);
+// Mounted under /migrate because the reverse proxy forwards specific prefixes, not /api
+// as a whole: /auth /freshbooks /migrate /parse /excel /callback /health /config-check.
+// At /api/files nginx treated the path as a static file and answered POST with 405
+// before the request ever reached this server. Registered ahead of migrationRouter so
+// /migrate/files resolves here; migrationRouter declares only explicit names, so there
+// is nothing for it to collide with.
+app.use('/migrate/files', fileRouter);
 app.use('/migrate', migrationRouter);
 app.use('/parse', parserRouter);
 app.use('/api/excel', excelRouter);
 app.use('/api/admin', adminRouter);
-// Under /api like the other JSON routers. Mounted at bare /files it collided with the
-// frontend's own /:workflow/files page: nginx has no proxy rule for it, so the SPA
-// fallback served index.html and the fetch got "<!doctype" instead of JSON.
-app.use('/api/files', fileRouter);
 app.get('/callback', handleCallback);
 app.get(/\/oauth-callback/, handleCallback);  // matches /oauth-callback and /*/oauth-callback
 

@@ -109,11 +109,11 @@ export type FileHistory = {
 };
 
 export function listFiles(): Promise<{ files: MigrationFileEntry[] }> {
-  return api('/api/files');
+  return api('/migrate/files');
 }
 
 export function createFile(name: string): Promise<MigrationFileEntry> {
-  return api('/api/files', {
+  return api('/migrate/files', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ name }),
@@ -121,20 +121,20 @@ export function createFile(name: string): Promise<MigrationFileEntry> {
 }
 
 export function getFile(id: number): Promise<MigrationFileEntry> {
-  return api(`/api/files/${id}`);
+  return api(`/migrate/files/${id}`);
 }
 
 // Links the file to whichever FreshBooks company this session is connected to.
 export function connectFile(id: number): Promise<MigrationFileEntry> {
-  return api(`/api/files/${id}/connect`, { method: 'PUT' });
+  return api(`/migrate/files/${id}/connect`, { method: 'PUT' });
 }
 
 export function getFileHistory(id: number): Promise<FileHistory> {
-  return api(`/api/files/${id}/history`);
+  return api(`/migrate/files/${id}/history`);
 }
 
 export function deleteFile(id: number): Promise<{ message: string; note?: string }> {
-  return api(`/api/files/${id}`, { method: 'DELETE' });
+  return api(`/migrate/files/${id}`, { method: 'DELETE' });
 }
 
 async function fileToBase64(file: File): Promise<string> {
