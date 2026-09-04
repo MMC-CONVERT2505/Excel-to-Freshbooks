@@ -57,11 +57,22 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
-    try {
-      const body = await res.json();
-      message = body?.message || body?.error || message;
-    } catch {
-      message = await res.text() || message;
+    // Read the body once, then try to parse it. The previous version called res.json()
+    // and, when that threw on a non-JSON body, called res.text() in the catch — but the
+    // stream was already consumed, so it threw "body stream already read" and reported
+    // that instead of the actual server error. Any HTML error page (an Express 404, an
+    // nginx page) hit exactly that path and hid the real cause.
+    const raw = await res.text().catch(() => '');
+    if (raw) {
+      try {
+        const body = JSON.parse(raw);
+        message = body?.message || body?.error || message;
+      } catch {
+        // Not JSON — usually an HTML error page. Show the status plus a short excerpt
+        // rather than dumping a whole document into a toast.
+        const text = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (text) message = `${message} — ${text.slice(0, 140)}`;
+      }
     }
     throw new Error(message);
   }
