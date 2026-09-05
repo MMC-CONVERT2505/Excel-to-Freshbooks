@@ -37,10 +37,9 @@ interface Props {
   workflow: Workflow;
   open: boolean;
   onClose: () => void;
-  onChangeWf: () => void;
 }
 
-export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) {
+export default function Sidebar({ workflow, open, onClose }: Props) {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { entities } = useMigration();
@@ -53,7 +52,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
     navigate('/');
   }
 
-  const wfName = workflow === 'qbd' ? 'QBD → FreshBooks' : 'Excel → FreshBooks';
+  const wfName = 'Excel → FreshBooks';
 
   // Name of the file currently being worked in, shown in the footer indicator.
   const [activeFile, setActiveFile] = useState<MigrationFileEntry | null>(null);
@@ -210,11 +209,6 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
             <span className="lbl" style={{ opacity: .8 }}>{activeFile!.company}</span>
           )}
         </div>
-        <button className="wf-indicator__change" title="Change workflow" onClick={onChangeWf}>
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/>
-          </svg>
-        </button>
       </div>
 
       {appUser && (

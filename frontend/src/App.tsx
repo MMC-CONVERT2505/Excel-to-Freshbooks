@@ -6,7 +6,6 @@ import { getActiveFileId } from './lib/activeFile.js';
 import { useApp } from './context/AppContext';
 import { useToast } from './context/ToastContext';
 import { MigrationProvider } from './context/MigrationContext';
-import Landing from './components/Landing';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
@@ -37,6 +36,12 @@ function AuthCheck({ children }: { children: React.ReactNode }) {
     );
   }
   return <>{children}</>;
+}
+
+function RootRedirect() {
+  return isLoggedIn()
+    ? <Navigate to="/excel/files" replace />
+    : <Navigate to="/login?next=/excel/files" replace />;
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -72,7 +77,7 @@ function OAuthCallback() {
 
     const auth     = params.get('auth');
     const session  = params.get('session');
-    const workflow = localStorage.getItem('oauth_workflow') || 'qbd';
+    const workflow = localStorage.getItem('oauth_workflow') || 'excel';
     const name     = params.get('name') || '';
 
     if (session) setSessionId(session);
@@ -101,7 +106,10 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const { workflow } = useParams<{ workflow: string }>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  if (workflow !== 'qbd' && workflow !== 'excel') return <Navigate to="/" replace />;
+  // QBD was retired from the UI. Any /qbd/* link still in a bookmark or an old tab
+  // lands on the Excel equivalent rather than a dead route.
+  if (workflow === 'qbd') return <Navigate to="/excel/files" replace />;
+  if (workflow !== 'excel') return <Navigate to="/" replace />;
 
   return (
     <MigrationProvider workflow={workflow}>
@@ -111,7 +119,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             workflow={workflow}
             open={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
-            onChangeWf={() => navigate('/')}
           />
           {sidebarOpen && <div className="scrim show" onClick={() => setSidebarOpen(false)} />}
           <div className="main">
@@ -128,7 +135,9 @@ export default function App() {
   return (
     <AuthCheck>
       <Routes>
-        <Route path="/"               element={<Landing />} />
+        {/* QBD was retired from the UI, so there is no workflow to choose between —
+            '/' goes straight to the Excel dashboard, or to login on the way there. */}
+        <Route path="/"               element={<RootRedirect />} />
         <Route path="/login"          element={<LoginPage />} />
         <Route path="/admin"          element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />

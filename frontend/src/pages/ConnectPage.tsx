@@ -107,7 +107,7 @@ export default function ConnectPage() {
 
   function connect() {
     setLoading(true);
-    localStorage.setItem('oauth_workflow', workflow || 'qbd');
+    localStorage.setItem('oauth_workflow', workflow || 'excel');
     toast('info', 'Redirecting to FreshBooks', 'Approve access on the FreshBooks consent screen.');
     window.location.href = `${API}/auth/login`;
   }

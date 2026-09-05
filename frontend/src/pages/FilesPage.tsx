@@ -239,7 +239,13 @@ export default function FilesPage() {
             <div
               key={f.id}
               className="card"
-              style={{ padding: 0, outline: isActive ? '2px solid var(--blue)' : undefined }}
+              style={{ padding: 0, cursor: 'pointer', outline: isActive ? '2px solid var(--blue)' : undefined }}
+              // The whole card opens the file. The footer buttons stopPropagation so
+              // Delete and Connect still do their own thing rather than opening it.
+              onClick={() => onOpen(f)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(f); } }}
             >
               {/* body */}
               <div style={{ padding: '20px 20px 16px' }}>
@@ -283,21 +289,21 @@ export default function FilesPage() {
                   <button
                     className="btn btn--sm btn--soft"
                     disabled={busy}
-                    onClick={() => onConnect(f)}
+                    onClick={e => { e.stopPropagation(); onConnect(f); }}
                   >
                     {busy ? 'Connecting…' : 'Connect FreshBooks'}
                   </button>
                 )}
 
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <button style={{ ...iconBtn, color: 'var(--error)' }} title="Delete" disabled={busy} onClick={() => onDelete(f)}>
+                  <button style={{ ...iconBtn, color: 'var(--error)' }} title="Delete" disabled={busy} onClick={e => { e.stopPropagation(); onDelete(f); }}>
                     <IconTrash />
                   </button>
                   <button
                     style={{ ...iconBtn, color: f.connected ? 'var(--blue)' : 'var(--text-3)' }}
                     title={f.connected ? 'Open' : 'Connect first'}
                     disabled={busy}
-                    onClick={() => onOpen(f)}
+                    onClick={e => { e.stopPropagation(); onOpen(f); }}
                   >
                     <IconChevron />
                   </button>
