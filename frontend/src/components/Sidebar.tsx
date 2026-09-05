@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { downloadAllStyledTemplates } from '../lib/templateExcel';
 import { getFile, type MigrationFileEntry } from '../lib/api';
-import { getActiveFileId } from '../lib/activeFile.js';
+import { getActiveFileId, clearActiveFile } from '../lib/activeFile.js';
 import type { Workflow } from '../context/AppContext';
 import { useMigration } from '../context/MigrationContext';
 import { templateFor } from '../data/entities';
@@ -67,6 +67,12 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
     return () => { cancelled = true; };
   }, [location.pathname]);
 
+  // The dashboard is outside every file, so the file's own nav must not appear there —
+  // holding an id in localStorage is not the same as currently being inside that file.
+  // Gating on the route as well means a direct URL to the dashboard behaves correctly too.
+  const onDashboard = location.pathname === `/${workflow}/files`;
+  const inFile      = !!activeFile && !onDashboard;
+
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="sidebar__logo">
@@ -79,8 +85,10 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
         {/* files — the dashboard of named migrations */}
         <div className="nav-section">
           <button
-            className={`nav-item${location.pathname === `/${workflow}/files` ? ' active' : ''}`}
-            onClick={() => go('files')}
+            className={`nav-item${onDashboard ? ' active' : ''}`}
+            // Going back to the list means leaving the file, so drop it here rather
+            // than letting a stale id linger and quietly scope the next push.
+            onClick={() => { clearActiveFile(); setActiveFile(null); go('files'); }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -91,7 +99,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           {/* Everything below belongs to a file: it decides which company the work
               targets. With no file open there is nothing for these to act on, so they
               stay hidden until one is opened from the dashboard. */}
-          {activeFile && (<>
+          {inFile && (<>
           <button
             className={`nav-item${location.pathname === `/${workflow}/overview` ? ' active' : ''}`}
             onClick={() => go('overview')}
@@ -152,7 +160,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           )}
 
           {/* download all templates */}
-          {activeFile && (
+          {inFile && (
           <button className="nav-item sb-tpl-btn" onClick={() => downloadAllTemplates(entities)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -165,7 +173,7 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
         </div>
 
         {/* entities — only once a file is open, same reason as above */}
-        {activeFile && (
+        {inFile && (
         <div className="nav-section">
           <div className="nav-section__label">Entities</div>
           {ENTITY_ORDER.map(id => {
@@ -196,10 +204,10 @@ export default function Sidebar({ workflow, open, onClose, onChangeWf }: Props) 
           {/* Which file is open matters more than which workflow — it decides where a
               push lands. Keep it visible on every page so nobody pushes into the wrong
               client's file without noticing. */}
-          <span className="lbl">{activeFile ? 'Active file' : 'Active workflow'}</span>
-          <b title={activeFile?.name ?? wfName}>{activeFile?.name ?? wfName}</b>
-          {activeFile?.company && (
-            <span className="lbl" style={{ opacity: .8 }}>{activeFile.company}</span>
+          <span className="lbl">{inFile ? 'Active file' : 'Active workflow'}</span>
+          <b title={inFile ? activeFile!.name : wfName}>{inFile ? activeFile!.name : wfName}</b>
+          {inFile && activeFile!.company && (
+            <span className="lbl" style={{ opacity: .8 }}>{activeFile!.company}</span>
           )}
         </div>
         <button className="wf-indicator__change" title="Change workflow" onClick={onChangeWf}>
