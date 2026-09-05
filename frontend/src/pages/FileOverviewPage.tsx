@@ -111,9 +111,9 @@ export default function FileOverviewPage() {
       </button>
 
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>{file?.name ?? 'File'}</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>{file?.name ?? 'File'}</h2>
         {file?.company && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'var(--text-3)', fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'var(--text-3)', fontSize: 12 }}>
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -133,14 +133,14 @@ export default function FileOverviewPage() {
           }}>
             <div style={{
               width: 48, height: 48, borderRadius: '50%', background: 'var(--surface)',
-              display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: 'var(--text-1)',
+              display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, color: 'var(--text-1)',
             }}>{pct}%</div>
           </div>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <strong style={{ fontSize: 16 }}>
+            <strong style={{ fontSize: 14.5 }}>
               {doneCount === all.length ? 'All imports pushed' : 'Import in progress'}
             </strong>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-3)' }}>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
               {doneCount} of {all.length} imports are fully pushed to FreshBooks.
               Pick one below to upload and push.
             </p>
@@ -179,10 +179,10 @@ export default function FileOverviewPage() {
                     <EntityIcon id={id} size={46} />
                     {badge(s)}
                   </div>
-                  <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>
+                  <div style={{ marginTop: 13, fontSize: 13.5, fontWeight: 700, color: 'var(--text-1)' }}>
                     {ent?.name ?? id}
                   </div>
-                  <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--text-3)' }}>
+                  <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-3)' }}>
                     {subtitle(s)}
                   </div>
                   {(ent?.failed ?? 0) > 0 && (

@@ -167,8 +167,8 @@ export default function FilesPage() {
       {/* ── header: title + search + new ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <h2 style={{ margin: 0, fontSize: 22 }}>Your Files</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-3)' }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Your Files</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
             {loading
               ? 'Loading…'
               : `${files.length} file${files.length === 1 ? '' : 's'} · ${files.filter(f => f.connected).length} connected`}
@@ -257,20 +257,20 @@ export default function FilesPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <strong style={{ fontSize: 16, color: 'var(--text-1)' }}>{f.name}</strong>
+                  <strong style={{ fontSize: 14.5, color: 'var(--text-1)' }}>{f.name}</strong>
                   {isActive && (
                     <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .4, color: 'var(--blue)' }}>ACTIVE</span>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'var(--text-3)', fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'var(--text-3)', fontSize: 12 }}>
                   <IconLink />
                   <span style={{ fontFamily: 'var(--mono, monospace)' }}>
                     {f.company ?? 'Not linked to a company'}
                   </span>
                 </div>
 
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)' }}>
+                <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-3)' }}>
                   Created {fmtDate(f.createdAt)}
                   {typeof f.runCount === 'number' && ` · ${f.runCount} migration${f.runCount === 1 ? '' : 's'}`}
                 </div>
@@ -282,7 +282,7 @@ export default function FilesPage() {
                 display: 'flex', alignItems: 'center', gap: 6,
               }}>
                 {f.connected ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--success)', fontWeight: 600, fontSize: 13 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--success)', fontWeight: 600, fontSize: 12 }}>
                     <IconCheck /> Connected
                   </span>
                 ) : (
