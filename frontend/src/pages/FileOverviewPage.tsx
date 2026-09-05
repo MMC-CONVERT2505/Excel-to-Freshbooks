@@ -4,8 +4,7 @@ import { useApp } from '../context/AppContext';
 import { useMigration } from '../context/MigrationContext';
 import { getFile, type MigrationFileEntry } from '../lib/api';
 import { getActiveFileId, clearActiveFile } from '../lib/activeFile';
-import { CatIcon } from '../components/CatIcon';
-import type { Cat } from '../data/entities';
+import { EntityIcon } from '../components/EntityIcon';
 
 /* Load order matters: everything in TRANSACTIONS refers to something in SETUP. */
 const GROUPS: Array<{ label: string; hint: string; ids: string[] }> = [
@@ -21,13 +20,6 @@ const GROUPS: Array<{ label: string; hint: string; ids: string[] }> = [
           'credit-notes', 'invoice-payments', 'bill-payments', 'journal-entries'],
   },
 ];
-
-const CAT_OF: Record<string, Cat> = {
-  'chart-of-accounts': 'accounts', 'clients': 'people', 'vendors': 'people',
-  'items': 'catalog', 'services': 'catalog', 'expenses': 'money', 'income': 'money',
-  'invoices': 'docs', 'sales-receipts': 'docs', 'bills': 'docs', 'credit-notes': 'docs',
-  'invoice-payments': 'payments', 'bill-payments': 'payments', 'journal-entries': 'accounts',
-};
 
 type CardState =
   | { kind: 'empty' }
@@ -98,10 +90,12 @@ export default function FileOverviewPage() {
     }
   }
 
-  function cardBorder(s: CardState) {
-    if (s.kind === 'done')    return '1px solid var(--success)';
-    if (s.kind !== 'empty')   return '1px solid var(--warning)';
-    return '1px solid var(--border)';
+  // State reads from the card itself, not just a badge: amber for work still to do,
+  // green for finished, plain for nothing uploaded yet.
+  function cardStyle(s: CardState): React.CSSProperties {
+    if (s.kind === 'done')  return { border: '1px solid #A7DCC6', background: '#F4FBF8' };
+    if (s.kind !== 'empty') return { border: '1px solid #F0C98A', background: '#FFFBF3' };
+    return { border: '1px solid var(--border)', background: 'var(--surface)' };
   }
 
   return (
@@ -176,13 +170,13 @@ export default function FileOverviewPage() {
                   key={id}
                   className="card"
                   style={{
-                    padding: 18, textAlign: 'left', border: cardBorder(s),
-                    display: 'block', width: '100%', cursor: 'pointer',
+                    padding: 18, textAlign: 'left', display: 'block',
+                    width: '100%', cursor: 'pointer', ...cardStyle(s),
                   }}
                   onClick={() => navigate(`/${workflow}/entity/${id}`)}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                    <CatIcon cat={CAT_OF[id] ?? 'docs'} size={38} />
+                    <EntityIcon id={id} size={46} />
                     {badge(s)}
                   </div>
                   <div style={{ marginTop: 14, fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>
