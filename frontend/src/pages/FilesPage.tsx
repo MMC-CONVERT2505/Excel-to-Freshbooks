@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import {
-  listFiles, createFile, connectFile, deleteFile, getFileHistory,
-  type MigrationFileEntry, type FileHistory,
+  listFiles, createFile, connectFile, deleteFile,
+  type MigrationFileEntry,
 } from '../lib/api';
 import { getActiveFileId, setActiveFileId, clearActiveFile } from '../lib/activeFile';
 
@@ -30,11 +30,6 @@ const IconCheck = () => (
 const IconTrash = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-  </svg>
-);
-const IconClock = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
   </svg>
 );
 const IconChevron = () => (
@@ -65,7 +60,6 @@ export default function FilesPage() {
   const [newName, setNewName]   = useState('');
   const [search, setSearch]     = useState('');
   const [busyId, setBusyId]     = useState<number | null>(null);
-  const [historyFor, setHistoryFor] = useState<FileHistory | null>(null);
   const [activeId, setActiveId]     = useState<number | null>(getActiveFileId());
 
   async function refresh() {
@@ -140,13 +134,6 @@ export default function FilesPage() {
     setActiveFileId(f.id);
     setActiveId(f.id);
     navigate(`/${workflow}/overview`);
-  }
-
-  async function onHistory(f: MigrationFileEntry) {
-    setBusyId(f.id);
-    try { setHistoryFor(await getFileHistory(f.id)); }
-    catch (err: any) { toast('error', 'Could not load history', err.message); }
-    finally { setBusyId(null); }
   }
 
   async function onDelete(f: MigrationFileEntry) {
@@ -303,9 +290,6 @@ export default function FilesPage() {
                 )}
 
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <button style={iconBtn} title="History" disabled={busy} onClick={() => onHistory(f)}>
-                    <IconClock />
-                  </button>
                   <button style={{ ...iconBtn, color: 'var(--error)' }} title="Delete" disabled={busy} onClick={() => onDelete(f)}>
                     <IconTrash />
                   </button>
@@ -324,37 +308,6 @@ export default function FilesPage() {
         })}
       </div>
 
-      {/* ── history panel ── */}
-      {historyFor && (
-        <div className="card" style={{ marginTop: 20 }}>
-          <div className="card__head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ margin: 0 }}>History — {historyFor.file.name}</h3>
-            <button className="btn btn--sm btn--ghost" onClick={() => setHistoryFor(null)}>Close</button>
-          </div>
-          <div className="card__body">
-            {historyFor.runs.length === 0
-              ? <div style={{ color: 'var(--text-3)', padding: 12 }}>No migrations have run under this file yet.</div>
-              : historyFor.runs.map(r => (
-                  <div key={r.id} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: 13 }}>Run #{r.id}</strong>
-                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{new Date(r.startedAt).toLocaleString()}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{r.status}</span>
-                      {r.triggeredBy && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>by {r.triggeredBy}</span>}
-                      <span style={{ marginLeft: 'auto', fontSize: 12 }}>
-                        <span style={{ color: 'var(--success)' }}>✓ {r.totals.success}</span>
-                        {'  '}<span style={{ color: 'var(--text-3)' }}>⚡ {r.totals.skipped}</span>
-                        {'  '}<span style={{ color: 'var(--error)' }}>✗ {r.totals.failed}</span>
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
-                      {r.phases.map(p => `${p.entity} (${p.successCount}/${p.totalRecords})`).join(' · ')}
-                    </div>
-                  </div>
-                ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
