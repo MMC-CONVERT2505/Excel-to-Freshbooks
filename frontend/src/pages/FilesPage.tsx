@@ -139,7 +139,7 @@ export default function FilesPage() {
     if (!f.connected) { onConnect(f); return; }
     setActiveFileId(f.id);
     setActiveId(f.id);
-    navigate(`/${workflow}/tracker`);
+    navigate(`/${workflow}/overview`);
   }
 
   async function onHistory(f: MigrationFileEntry) {

@@ -13,6 +13,7 @@ import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import ConnectPage from './pages/ConnectPage';
 import FilesPage from './pages/FilesPage';
+import FileOverviewPage from './pages/FileOverviewPage';
 import UploadPage from './pages/UploadPage';
 import TrackerPage from './pages/TrackerPage';
 import QAPage from './pages/QAPage';
@@ -134,6 +135,7 @@ export default function App() {
         <Route path="/:workflow"      element={<Navigate to="files" replace />} />
         <Route path="/:workflow/files"   element={<RequireAuth><AppLayout><FilesPage /></AppLayout></RequireAuth>} />
         <Route path="/:workflow/connect" element={<RequireAuth><AppLayout><ConnectPage /></AppLayout></RequireAuth>} />
+        <Route path="/:workflow/overview" element={<RequireAuth><RequireFile><AppLayout><FileOverviewPage /></AppLayout></RequireFile></RequireAuth>} />
         <Route path="/:workflow/upload"  element={<RequireAuth><RequireFile><AppLayout><UploadPage /></AppLayout></RequireFile></RequireAuth>} />
         <Route path="/:workflow/tracker" element={<RequireAuth><RequireFile><AppLayout><TrackerPage /></AppLayout></RequireFile></RequireAuth>} />
         <Route path="/:workflow/qa"      element={<RequireAuth><RequireFile><AppLayout><QAPage /></AppLayout></RequireFile></RequireAuth>} />
