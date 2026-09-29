@@ -16,6 +16,9 @@ import {
   runMigrateChartOfAccounts,
   runMigrateServices,
   runMigrateJournalEntries,
+  runMigrateEstimates,
+  runMigrateProjects,
+  runMigrateTimeEntries,
   runMigrateAll,
   runDeleteAllItems,
   runGetMigrationStatus,
@@ -45,6 +48,9 @@ router.post('/invoice-payments', runMigrateInvoicePayments);
 router.post('/chart-of-accounts', runMigrateChartOfAccounts);
 router.post('/services',         runMigrateServices);
 router.post('/journal-entries',  runMigrateJournalEntries);
+router.post('/estimates',        runMigrateEstimates);
+router.post('/projects',         runMigrateProjects);
+router.post('/time-entries',     runMigrateTimeEntries);
 router.post('/all',              runMigrateAll);
 
 export default router;

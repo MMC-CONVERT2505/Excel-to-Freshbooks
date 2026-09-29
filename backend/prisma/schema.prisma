@@ -33,6 +33,9 @@ enum EntityType {
   // one run made the second overwrite the first's phase and its issue records.
   SALES_RECEIPT
   EXPENSE_CATEGORY
+  ESTIMATE
+  PROJECT
+  TIME_ENTRY
 }
 
 enum RunStatus {

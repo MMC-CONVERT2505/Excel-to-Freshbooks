@@ -63,6 +63,18 @@ const S: Record<string, Spec> = {
     fg: '#7C3AED', bg: '#EFE9FD',
     path: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="14" y2="11"/></>,
   },
+  'estimates': {
+    fg: '#0D9488', bg: '#DFF5F2',
+    path: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></>,
+  },
+  'projects': {
+    fg: '#4338CA', bg: '#E9E8FC',
+    path: <><rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/></>,
+  },
+  'time-entries': {
+    fg: '#0891B2', bg: '#E0F2F7',
+    path: <><circle cx="12" cy="13" r="8"/><polyline points="12 9 12 13 15 15"/><path d="M9 1h6"/></>,
+  },
 };
 
 const FALLBACK: Spec = {

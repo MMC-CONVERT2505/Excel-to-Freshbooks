@@ -17,6 +17,9 @@ import {
   migrateChartOfAccounts,
   migrateServices,
   migrateJournalEntries,
+  migrateEstimates,
+  migrateProjects,
+  migrateTimeEntries,
   migrateAll,
   getMigrationStatus,
   cancelMigration,
@@ -110,6 +113,9 @@ export const runMigrateInvoicePayments = wrap(async (req: Request, res: Response
 export const runMigrateChartOfAccounts = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateChartOfAccounts(t))); });
 export const runMigrateServices        = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateServices(t))); });
 export const runMigrateJournalEntries  = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateJournalEntries(t))); });
+export const runMigrateEstimates       = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateEstimates(t))); });
+export const runMigrateProjects        = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateProjects(t))); });
+export const runMigrateTimeEntries     = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateTimeEntries(t))); });
 export const runMigrateAll             = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => migrateAll(t))); });
 export const runGetMigrationStatus     = wrap(async (req: Request, res: Response) => { res.json(await withSession(req, (t) => getMigrationStatus(t))); });
 export const runCancelMigration        = wrap(async (req: Request, res: Response) => {

@@ -18,6 +18,9 @@ import {
   getChartOfAccounts, getLedgerAccounts, createChartOfAccount, createAccountGroup,
   createService, setServiceRate, getServices, getTasks, updateTask,
   getJournalEntries, createJournalEntry,
+  createEstimate, getEstimates,
+  createProject, getProjects,
+  createTimeEntry, getTimeEntries, getDefaultIdentityId,
   getSessionTokenId,
   getSessionCompany,
   getSessionFileId,
@@ -966,6 +969,218 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
   result.durationMs = Date.now() - invStart;
   await flushCustomPhase('invoices', result, issues.all, tokenId);
   console.log(`[INVOICES] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
+  return result;
+}
+
+// ─── ESTIMATES ───────────────────────────────────────────────────────────────
+// Client resolution and line-item shape mirror migrateInvoices exactly — same
+// grouping-by-header-number pattern, same client lookup/auto-create fallback.
+// Two things are genuinely different from invoices, both confirmed against our
+// own already-verified exportEstimatesExcel() (the read side of this resource):
+//   - FreshBooks calls the number field "estimatenum", not "estimate_number"
+//   - estimates have expiry_date instead of invoices' due_offset_days
+// Status is restricted to 1 (draft) / 2 (sent) only, the same lesson learned from
+// invoices: FreshBooks computes accepted/declined/invoiced itself and rejects an
+// attempt to set them directly (errno 8008 there; assume the same family of error
+// here since it is the same status-field design across both document types).
+
+export async function migrateEstimates(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('estimates', tokenId);
+
+  let clientCsvRows: Row[] = [];
+  try { clientCsvRows = await readUploadedRows('clients', tokenId); } catch { clientCsvRows = []; }
+  const clientCsvByName: Record<string, Row> = {};
+  for (const r of clientCsvRows) {
+    const addCsvVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientCsvByName[v] = r;
+    };
+    if (r.organization) addCsvVariants(r.organization);
+    const full = `${r.fname || ''} ${r.lname || ''}`.trim();
+    if (full) addCsvVariants(full);
+  }
+
+  const clientRes = await getClients();
+  const clients: any[] = clientRes?.response?.result?.clients || [];
+
+  const clientByEmail: Record<string, number> = {};
+  for (const c of clients) {
+    if (c.email) clientByEmail[c.email.toLowerCase()] = c.id;
+  }
+  const clientByName: Record<string, number> = {};
+  for (const c of clients) {
+    const addVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientByName[v] = c.id;
+    };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+    const lastFirst = `${c.lname || ''}, ${c.fname || ''}`.trim().replace(/^,\s*/, '');
+    if (lastFirst) addVariants(lastFirst);
+  }
+
+  const existingEstRes = await getEstimates();
+  const existingEstimates: any[] = existingEstRes?.response?.result?.estimates || [];
+  const existingEstNums = new Set(existingEstimates.map((e: any) => String(e.estimatenum || '').toLowerCase()));
+
+  // Group rows by estimate_number — each row is one line item
+  const groups: Record<string, Row[]> = {};
+  for (const row of rows) {
+    const num = row.estimate_number;
+    if (!groups[num]) groups[num] = [];
+    groups[num].push(row);
+  }
+
+  const estimateGroups = Object.entries(groups);
+  const result: MigrationResult = { entity: 'estimates', total: estimateGroups.length, success: 0, skipped: 0, failed: 0, durationMs: 0, errors: [] };
+  const issues = newIssueCollector();
+  const estStart = Date.now();
+  let rowIndex = 2;
+
+  liveProgress.set(sessionKey('estimates'), { done: 0, total: estimateGroups.length, startedAt: Date.now() });
+  console.log(`\n[ESTIMATES] Starting migration — ${estimateGroups.length} estimates to push`);
+
+  for (const [estNum, lineRows] of estimateGroups) {
+    const i = result.success + result.failed + result.skipped;
+    const label = `[ESTIMATES] (${i + 1}/${estimateGroups.length}) #${estNum}`;
+    if (existingEstNums.has(estNum.toLowerCase())) {
+      result.skipped++;
+      issues.skipped(rowIndex, `#${estNum}`, lineRows[0], 'Estimate number already exists in FreshBooks');
+      console.log(`${label} → ⚡ skipped (already exists in FreshBooks)`);
+      rowIndex += lineRows.length;
+      continue;
+    }
+    try {
+      const header = lineRows[0];
+      let customerid = clientByEmail[header.customer_email?.toLowerCase() || ''];
+      if (!customerid && header.customer_name) {
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientByName[v]) { customerid = clientByName[v]; break; }
+        }
+      }
+
+      if (!customerid && header.customer_name) {
+        let csvClient: Row | undefined;
+        for (const v of clientNameVariants(header.customer_name)) {
+          if (clientCsvByName[v]) { csvClient = clientCsvByName[v]; break; }
+        }
+        const nameParts = header.customer_name.split(', ');
+        const hasComma  = nameParts.length === 2;
+        try {
+          const newClient = await createClient(csvClient ? {
+            fname:         csvClient.fname        || '',
+            lname:         csvClient.lname        || '',
+            email:         csvClient.email        || '',
+            organization:  csvClient.organization || '',
+            bus_phone:     csvClient.bus_phone    || '',
+            mob_phone:     csvClient.mob_phone    || '',
+            p_street:      csvClient.p_street     || '',
+            p_street2:     csvClient.p_street2    || '',
+            p_city:        csvClient.p_city       || '',
+            p_province:    csvClient.p_province   || '',
+            p_code:        csvClient.p_code       || '',
+            p_country:     csvClient.p_country    || '',
+            currency_code: csvClient.currency_code || 'USD',
+            language:      csvClient.language      || 'en',
+            note:          csvClient.note          || '',
+          } : {
+            lname:        hasComma ? nameParts[0].trim() : '',
+            fname:        hasComma ? nameParts[1].trim() : header.customer_name,
+            organization: hasComma ? '' : header.customer_name,
+            currency_code: 'USD',
+            language:      'en',
+          });
+          customerid = newClient?.response?.result?.client?.id;
+          if (customerid) {
+            for (const v of clientNameVariants(header.customer_name)) clientByName[v] = customerid;
+            console.log(`${label} → 👤 created missing client: "${header.customer_name}"`);
+          }
+        } catch (createErr: any) {
+          if (isAlreadyExists(createErr)) {
+            const fbNames = clients
+              .map((c: any) => c.organization || `${c.fname || ''} ${c.lname || ''}`.trim())
+              .filter(Boolean)
+              .join(', ');
+            console.warn(`${label} → ⚠ client "${header.customer_name}" exists in FreshBooks but no name variant matched.\n  FreshBooks clients: ${fbNames}`);
+          } else {
+            throw createErr;
+          }
+        }
+      }
+
+      if (!customerid) {
+        const fbNames = clients
+          .map((c: any) => c.organization || `${c.fname || ''} ${c.lname || ''}`.trim())
+          .filter(Boolean).slice(0, 10).join(' | ');
+        throw new Error(`Client not found: "${header.customer_name}". FreshBooks has: ${fbNames}`);
+      }
+
+      const lines = lineRows.map((line) => {
+        const qty = Number(line.line_qty) || 1;
+        const unitCost = parseFloat(line.line_unit_cost) || 0;
+        const subtotal = qty * unitCost;
+
+        const taxAmt1 = parseFloat(line.tax_amount1) || 0;
+        const taxAmt2 = parseFloat(line.tax_amount2) || 0;
+
+        const lineObj: Record<string, any> = {
+          name: line.line_name?.trim() || 'Sales',
+          description: line.line_description || '',
+          qty,
+          unit_cost: { amount: line.line_unit_cost, code: header.currency_code || 'USD' },
+        };
+
+        if (line.tax_name1 && taxAmt1 && subtotal) {
+          lineObj.taxName1 = line.tax_name1;
+          lineObj.taxAmount1 = parseFloat(((taxAmt1 / subtotal) * 100).toFixed(4));
+        }
+        if (line.tax_name2 && taxAmt2 && subtotal) {
+          lineObj.taxName2 = line.tax_name2;
+          lineObj.taxAmount2 = parseFloat(((taxAmt2 / subtotal) * 100).toFixed(4));
+        }
+
+        return lineObj;
+      });
+
+      // Only 1=draft / 2=sent are settable on create — see comment above the function.
+      const statusMap: Record<string, number> = {
+        '1': 1, draft: 1,
+        '2': 2, sent: 2,
+      };
+      const fbStatus = statusMap[String(header.status ?? '').trim().toLowerCase()] ?? 1;
+
+      await callWithRetry(() => createEstimate({
+        clientid: customerid,
+        estimatenum: String(header.estimate_number ?? '').slice(0, 20),
+        create_date: normalizeDate(header.create_date),
+        expiry_date: header.expiry_date ? normalizeDate(header.expiry_date) : undefined,
+        currency_code: header.currency_code || 'USD',
+        notes: header.notes,
+        terms: header.terms,
+        po_number: header.po_number,
+        language: header.language || 'en',
+        status: fbStatus,
+        lines,
+      }));
+
+      result.success++;
+      console.log(`${label} → ✓ pushed`);
+    } catch (err: any) {
+      result.failed++;
+      const detail = err?.response?.data;
+      const errMsg = detail ? JSON.stringify(detail) : err.message;
+      result.errors.push({ row: rowIndex, error: errMsg });
+      issues.failed(rowIndex, `#${estNum}`, lineRows[0], errMsg);
+      console.log(`${label} → ❌ failed: ${errMsg}`);
+    }
+    rowIndex += lineRows.length;
+    liveProgress.get(sessionKey('estimates'))!.done = result.success + result.failed + result.skipped;
+    await sleep(DELAY_MS);
+  }
+
+  markLiveProgressCompleted(sessionKey('estimates'));
+  result.durationMs = Date.now() - estStart;
+  await flushCustomPhase('estimates', result, issues.all, tokenId);
+  console.log(`[ESTIMATES] Done — success: ${result.success}, skipped: ${result.skipped}, failed: ${result.failed}`);
   return result;
 }
 
@@ -2085,6 +2300,169 @@ export async function migrateServices(tokenId: number | null = null): Promise<Mi
   );
 }
 
+// ─── PROJECTS ────────────────────────────────────────────────────────────────
+// Projects live under a different FreshBooks product area (/projects/business/...,
+// not /accounting/account/...) with their own client_id field, so client resolution
+// is repeated here rather than shared with the accounting-family migrations.
+// Duplicate check is by title alone, the only natural key a project has.
+
+export async function migrateProjects(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('projects', tokenId);
+
+  const clientRes = await getClients();
+  const clients: any[] = clientRes?.response?.result?.clients || [];
+  const clientByName: Record<string, number> = {};
+  for (const c of clients) {
+    const addVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientByName[v] = c.id;
+    };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+  }
+
+  const existingRes = await getProjects();
+  const existingTitles = new Set((existingRes?.projects || []).map((p: any) => (p.title || '').toLowerCase()));
+
+  const VALID_TYPES = new Set(['fixed_price', 'hourly_rate']);
+  const VALID_BILLING = new Set(['project_rate', 'team_member_rate', 'business_rate']);
+
+  return runMigration('projects', rows, async (row) => {
+    let clientId: number | undefined;
+    if (row.client_name) {
+      for (const v of clientNameVariants(row.client_name)) {
+        if (clientByName[v]) { clientId = clientByName[v]; break; }
+      }
+      // Unlike invoices/estimates, a project with an unmatched client is not an
+      // error — FreshBooks projects can exist with no client (internal work), so
+      // this silently proceeds without one rather than failing the row or trying
+      // to auto-create a client from a bare name with no other details.
+    }
+
+    const projectType = VALID_TYPES.has(String(row.project_type ?? '').trim().toLowerCase())
+      ? String(row.project_type).trim().toLowerCase()
+      : 'hourly_rate';
+    const billingMethod = VALID_BILLING.has(String(row.billing_method ?? '').trim().toLowerCase())
+      ? String(row.billing_method).trim().toLowerCase()
+      : 'project_rate';
+
+    const payload: Record<string, any> = {
+      title: row.title,
+      description: row.description || '',
+      project_type: projectType,
+      billing_method: projectType === 'hourly_rate' ? billingMethod : undefined,
+    };
+    if (clientId) payload.client_id = clientId;
+    if (row.due_date) payload.due_date = normalizeDate(row.due_date);
+    if (projectType === 'fixed_price' && row.fixed_price) {
+      payload.fixed_price = parseFloat(row.fixed_price) || 0;
+    }
+    if (projectType === 'hourly_rate' && row.rate) {
+      payload.rate = { amount: row.rate, code: row.currency_code || 'USD' };
+    }
+    if (row.budget) payload.budget = parseFloat(row.budget) || 0;
+
+    await createProject(payload);
+  },
+  (row) => row.title,
+  (row) => existingTitles.has((row.title || '').toLowerCase())
+  );
+}
+
+// ─── TIME ENTRIES ────────────────────────────────────────────────────────────
+// Time entries have no natural business key (no entry number the way invoices or
+// bills have), so — same as Expenses/Income/Payments elsewhere in this file —
+// there is no duplicate check here. Every row in the sheet is pushed on every run;
+// the sheet must contain only rows not already migrated.
+//
+// identity_id (who logged the time) is required by FreshBooks. A row may specify
+// one directly via the identity_id column; otherwise this defaults to the
+// connected FreshBooks account's own identity via getDefaultIdentityId().
+
+export async function migrateTimeEntries(tokenId: number | null = null): Promise<MigrationResult> {
+  const rows = await readUploadedRows('time-entries', tokenId);
+
+  const [clientRes, projectRes, serviceRes, defaultIdentityId] = await Promise.all([
+    getClients(),
+    getProjects(),
+    getServices(),
+    getDefaultIdentityId(),
+  ]);
+
+  const clients: any[] = clientRes?.response?.result?.clients || [];
+  const clientByName: Record<string, number> = {};
+  for (const c of clients) {
+    const addVariants = (name: string) => {
+      for (const v of clientNameVariants(name)) clientByName[v] = c.id;
+    };
+    if (c.organization) addVariants(c.organization);
+    const firstLast = `${c.fname || ''} ${c.lname || ''}`.trim();
+    if (firstLast) addVariants(firstLast);
+  }
+
+  const projects: any[] = projectRes?.projects || [];
+  const projectByTitle: Record<string, number> = {};
+  for (const p of projects) {
+    if (p.title) projectByTitle[String(p.title).toLowerCase().trim()] = p.id;
+  }
+
+  const services: any[] = serviceRes?.response?.result?.services || [];
+  const serviceByName: Record<string, number> = {};
+  for (const s of services) {
+    if (s.name) serviceByName[String(s.name).toLowerCase().trim()] = s.id;
+  }
+
+  return runMigration('time-entries', rows, async (row) => {
+    const projectId = projectByTitle[String(row.project_name ?? '').toLowerCase().trim()];
+    if (!row.project_name) {
+      throw new Error('project_name is required for a time entry.');
+    }
+    if (!projectId) {
+      const known = projects.map((p: any) => p.title).filter(Boolean).slice(0, 10).join(' | ');
+      throw new Error(`Project not found: "${row.project_name}". Push Projects first. FreshBooks has: ${known}`);
+    }
+
+    const hours = parseFloat(row.duration_hours) || 0;
+    if (hours <= 0) {
+      throw new Error(`duration_hours must be a positive number (got "${row.duration_hours}").`);
+    }
+
+    const time = row.start_time && /^\d{1,2}:\d{2}$/.test(row.start_time) ? row.start_time : '09:00';
+    const startedAt = `${normalizeDate(row.date)}T${time}:00`;
+
+    let clientId: number | undefined;
+    if (row.client_name) {
+      for (const v of clientNameVariants(row.client_name)) {
+        if (clientByName[v]) { clientId = clientByName[v]; break; }
+      }
+    }
+    const serviceId = row.service_name
+      ? serviceByName[String(row.service_name).toLowerCase().trim()]
+      : undefined;
+
+    const identityId = row.identity_id ? Number(row.identity_id) : defaultIdentityId;
+    if (!identityId) {
+      throw new Error('No identity_id available — could not resolve the connected FreshBooks user, and none was given on this row.');
+    }
+
+    const payload: Record<string, any> = {
+      is_logged:   true,
+      duration:    Math.round(hours * 3600),
+      note:        row.note || '',
+      started_at:  startedAt,
+      project_id:  projectId,
+      identity_id: identityId,
+      billable:    String(row.billable ?? 'true').trim().toLowerCase() !== 'false',
+      billed:      false,
+    };
+    if (clientId)  payload.client_id  = clientId;
+    if (serviceId) payload.service_id = serviceId;
+
+    await createTimeEntry(payload);
+  },
+  (row) => `${row.project_name || '?'} | ${row.date} | ${row.duration_hours}h`);
+}
+
 // ─── JOURNAL ENTRIES ─────────────────────────────────────────────────────────
 
 export async function migrateJournalEntries(tokenId: number | null = null): Promise<MigrationResult> {
@@ -2203,15 +2581,18 @@ export async function migrateAll(tokenId: number | null = null): Promise<Migrati
   results.push(await migrateVendors(tokenId));           // 4 — bills/payments need vendors
   results.push(await migrateItems(tokenId));             // 5 — invoices reference items
   results.push(await migrateServices(tokenId));          // 6 — invoices reference services
-  results.push(await migrateExpenses(tokenId));          // 7 — standalone, needs categories
-  results.push(await migrateIncome(tokenId));            // 8 — standalone
-  results.push(await migrateJournalEntries(tokenId));    // 9 — references COA accounts
-  results.push(await migrateInvoices(tokenId));          // 10 — needs clients, items, services
-  results.push(await migrateSalesReceipts(tokenId));     // 11 — needs clients; creates invoice+payment
-  results.push(await migrateBills(tokenId));             // 12 — needs vendors, categories
-  results.push(await migrateCreditNotes(tokenId));       // 13 — needs clients
-  results.push(await migrateInvoicePayments(tokenId));   // 14 — needs invoices to exist first
-  results.push(await migrateBillPayments(tokenId));      // 15 — needs bills to exist first
+  results.push(await migrateProjects(tokenId));          // 7 — optionally references clients; time entries need it
+  results.push(await migrateExpenses(tokenId));          // 8 — standalone, needs categories
+  results.push(await migrateIncome(tokenId));            // 9 — standalone
+  results.push(await migrateJournalEntries(tokenId));    // 10 — references COA accounts
+  results.push(await migrateInvoices(tokenId));          // 11 — needs clients, items, services
+  results.push(await migrateSalesReceipts(tokenId));     // 12 — needs clients; creates invoice+payment
+  results.push(await migrateBills(tokenId));             // 13 — needs vendors, categories
+  results.push(await migrateCreditNotes(tokenId));       // 14 — needs clients
+  results.push(await migrateEstimates(tokenId));         // 15 — needs clients, items, services
+  results.push(await migrateTimeEntries(tokenId));       // 16 — needs projects to exist first
+  results.push(await migrateInvoicePayments(tokenId));   // 17 — needs invoices to exist first
+  results.push(await migrateBillPayments(tokenId));      // 18 — needs bills to exist first
 
   const totalMs   = Date.now() - allStart;
   const totalMins = Math.floor(totalMs / 60000);
@@ -2252,6 +2633,9 @@ const ENTITY_TYPE_TO_ID: Record<string, string> = {
   JOURNAL_ENTRY:     'journal-entries',
   SALES_RECEIPT:     'sales-receipts',
   EXPENSE_CATEGORY:  'expense-categories',
+  ESTIMATE:          'estimates',
+  PROJECT:           'projects',
+  TIME_ENTRY:        'time-entries',
 };
 
 export async function getMigrationStatus(tokenId?: number | null) {
@@ -2380,6 +2764,9 @@ const ID_TO_ENTITY_TYPE: Record<string, string> = {
   'journal-entries':   'JOURNAL_ENTRY',
   'sales-receipts':     'SALES_RECEIPT',
   'expense-categories': 'EXPENSE_CATEGORY',
+  'estimates':          'ESTIMATE',
+  'projects':           'PROJECT',
+  'time-entries':       'TIME_ENTRY',
 };
 
 // ── Issue recording for custom-loop migrations ───────────────────────────────
@@ -2424,6 +2811,7 @@ async function flushCustomPhase(
       'credit-notes':    'CREDIT_NOTE',
       'journal-entries': 'JOURNAL_ENTRY',
       'chart-of-accounts': 'CHART_OF_ACCOUNTS',
+      estimates:         'ESTIMATE',
     };
     const entityType = entityTypeMap[entity];
     if (!entityType) return;

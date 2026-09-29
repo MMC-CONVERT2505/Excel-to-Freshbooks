@@ -1737,6 +1737,23 @@ const ENTITY_CFG: Record<string, EntityCfg> = {
     deleteOne: async () => { throw Object.assign(new Error('Estimates cannot be deleted via this API'), { statusCode: 400 }); },
     updateOne: async () => { throw Object.assign(new Error('Estimates cannot be updated via this API'), { statusCode: 400 }); },
   },
+  'projects': {
+    getAll: getProjects,
+    // Projects-family responses are bare ({ projects: [...] }, no response.result wrapper) —
+    // getProjects() already returns that shape directly rather than the accounting-style
+    // wrapper used elsewhere in this map.
+    extractRecords: (d: any) => d.projects || [],
+    exportFn: exportProjectsExcel,
+    deleteOne: (id: number) => deleteProject(id),
+    updateOne: (id: number, body: Record<string, any>) => updateProject(id, body),
+  },
+  'time-entries': {
+    getAll: getTimeEntries,
+    extractRecords: (d: any) => d.time_entries || [],
+    exportFn: exportTimeEntriesExcel,
+    deleteOne: (id: number) => deleteTimeEntry(id),
+    updateOne: (id: number, body: Record<string, any>) => updateTimeEntry(id, body),
+  },
   'recurring-invoices': {
     getAll: getRecurringInvoices,
     extractRecords: (d: any) => d.response?.result?.invoice_profiles || [],
@@ -1806,6 +1823,8 @@ export async function getAllEntityCounts(): Promise<Record<string, number | null
     { id: 'chart-of-accounts',  url: `${BASE}/accounting/businesses/${bizUuid}/reports/chart_of_accounts?use_ledger_entries=true`, extract: d => d?.response?.result?.journal_entry_accounts?.length ?? null },
     { id: 'estimates',          url: `${BASE}/accounting/account/${acctId}/estimates/estimates?per_page=1`,           extract: d => d?.response?.result?.total ?? null },
     { id: 'recurring-invoices', url: `${BASE}/accounting/account/${acctId}/invoice_profiles/invoice_profiles?per_page=1`, extract: d => d?.response?.result?.total ?? null },
+    { id: 'projects',           url: `${BASE}/projects/business/${bizId}/projects?per_page=1`,                          extract: d => d?.meta?.total ?? null },
+    { id: 'time-entries',       url: `${BASE}/timetracking/business/${bizId}/time_entries?per_page=1`,                  extract: d => d?.meta?.total ?? null },
   ];
 
   const counts: Record<string, number | null> = {};
@@ -1826,9 +1845,9 @@ export async function exportAllExcel(): Promise<Buffer> {
   const XLSX = require('xlsx');
 
   const ORDER = [
-    'chart-of-accounts', 'clients', 'vendors', 'items', 'services',
+    'chart-of-accounts', 'clients', 'vendors', 'items', 'services', 'projects',
     'expenses', 'income', 'invoices', 'recurring-invoices', 'bills', 'credit-notes',
-    'invoice-payments', 'bill-payments', 'estimates', 'journal-entries',
+    'invoice-payments', 'bill-payments', 'estimates', 'time-entries', 'journal-entries',
   ];
 
   const wb = XLSX.utils.book_new();
@@ -2032,6 +2051,20 @@ async function exportEstimatesExcel(): Promise<Buffer> {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+// POST /accounting/account/{accountId}/estimates/estimates
+// Field names verified against exportEstimatesExcel() above (the read side of this same
+// resource): the number field is "estimatenum", not "estimate_number" like invoices use,
+// and the client field is "clientid" like every other accounting-family create call.
+export async function createEstimate(body: Record<string, any>) {
+  const token = await getToken();
+  const res = await fbAxios.post(
+    `${BASE}/accounting/account/${accountId()}/estimates/estimates`,
+    { estimate: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
 export async function getEstimates() {
   const token = await getToken();
   const allEstimates: any[] = [];
@@ -2121,5 +2154,174 @@ export async function getProjects() {
     page++;
   } while (page <= pages);
   return { projects: allProjects, total: allProjects.length };
+}
+
+// Projects live under the /projects/business/{businessId} family, not the accounting
+// /account/{accountId} family used by clients/invoices/etc — a different FreshBooks
+// product area with its own base path and its own bare { project: {...} } response
+// shape (no response.result wrapper).
+export async function createProject(body: Record<string, any>) {
+  const token = await getToken();
+  const res = await fbAxios.post(
+    `${BASE}/projects/business/${businessId()}/projects`,
+    { project: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+export async function updateProject(projectId: number, body: Record<string, any>) {
+  const token = await getToken();
+  const res = await fbAxios.put(
+    `${BASE}/projects/business/${businessId()}/projects/${projectId}`,
+    { project: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+export async function deleteProject(projectId: number) {
+  const token = await getToken();
+  const res = await fbAxios.delete(
+    `${BASE}/projects/business/${businessId()}/projects/${projectId}`,
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+async function exportProjectsExcel(): Promise<Buffer> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const { projects } = await getProjects();
+
+  if (projects.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['title', '(no records found)']]), 'projects');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows = projects.map((p: any) => ({
+    project_id:      p.id ?? '',
+    title:           p.title ?? '',
+    description:     p.description ?? '',
+    client_id:       p.client_id ?? '',
+    due_date:        p.due_date ?? '',
+    project_type:    p.project_type ?? '',
+    billing_method:  p.billing_method ?? '',
+    rate:            p.rate?.amount ?? '',
+    currency_code:   p.rate?.code ?? '',
+    fixed_price:     p.fixed_price ?? '',
+    budget:          p.budget ?? '',
+    complete:        p.complete ?? '',
+    internal:        p.internal ?? '',
+  }));
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'projects');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+// ── TIME ENTRIES ─────────────────────────────────────────────────────────────
+// Same product area as Projects: /timetracking/business/{businessId}, its own base
+// path and its own bare response shape, not the accounting family.
+
+// FreshBooks time entries require identity_id — the FreshBooks user who logged the
+// time. getFreshBooksIdentity() already calls /auth/api/v1/users/me for the OAuth
+// flow (auth.service.ts reads business_memberships off the same response); the
+// top-level response.id on that same call is that user's identity_id, so the
+// connected account's own identity is a safe, always-valid default when a row
+// does not specify one explicitly.
+export async function getDefaultIdentityId(): Promise<number | undefined> {
+  try {
+    const identity = await getFreshBooksIdentity();
+    const id = identity?.response?.id;
+    return typeof id === 'number' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getTimeEntries() {
+  const token = await getToken();
+  const allEntries: any[] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const res = await fbAxios.get(
+      `${BASE}/timetracking/business/${businessId()}/time_entries?page=${page}&per_page=100`,
+      { headers: authHeader(token.accessToken) }
+    );
+    const data = res.data;
+    allEntries.push(...(data?.time_entries || []));
+    pages = data?.meta?.pages ?? 1;
+    page++;
+  } while (page <= pages);
+  return { time_entries: allEntries, total: allEntries.length };
+}
+
+export async function createTimeEntry(body: Record<string, any>) {
+  const token = await getToken();
+  const res = await fbAxios.post(
+    `${BASE}/timetracking/business/${businessId()}/time_entries`,
+    { time_entry: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+export async function updateTimeEntry(entryId: number, body: Record<string, any>) {
+  const token = await getToken();
+  const res = await fbAxios.put(
+    `${BASE}/timetracking/business/${businessId()}/time_entries/${entryId}`,
+    { time_entry: body },
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+export async function deleteTimeEntry(entryId: number) {
+  const token = await getToken();
+  const res = await fbAxios.delete(
+    `${BASE}/timetracking/business/${businessId()}/time_entries/${entryId}`,
+    { headers: authHeader(token.accessToken) }
+  );
+  return res.data;
+}
+
+async function exportTimeEntriesExcel(): Promise<Buffer> {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  const XLSX = require('xlsx');
+
+  const { time_entries: entries } = await getTimeEntries();
+
+  if (entries.length === 0) {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['note', '(no records found)']]), 'time_entries');
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  const rows = entries.map((e: any) => ({
+    time_entry_id: e.id ?? '',
+    note:          e.note ?? '',
+    started_at:    e.started_at ?? '',
+    duration_hours: e.duration ? (e.duration / 3600).toFixed(2) : '',
+    client_id:     e.client_id ?? '',
+    project_id:    e.project_id ?? '',
+    service_id:    e.service_id ?? '',
+    identity_id:   e.identity_id ?? '',
+    billable:      e.billable ?? '',
+    billed:        e.billed ?? '',
+  }));
+
+  const keys = Object.keys(rows[0]);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: keys });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'time_entries');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 

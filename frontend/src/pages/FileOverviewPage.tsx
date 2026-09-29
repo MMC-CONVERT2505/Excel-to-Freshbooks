@@ -11,13 +11,14 @@ const GROUPS: Array<{ label: string; hint: string; ids: string[] }> = [
   {
     label: 'Setup',
     hint:  'Load these first — transactions refer to them',
-    ids: ['chart-of-accounts', 'clients', 'vendors', 'items', 'services'],
+    ids: ['chart-of-accounts', 'clients', 'vendors', 'items', 'services', 'projects'],
   },
   {
     label: 'Transactions',
     hint:  'The day-to-day entries',
     ids: ['expenses', 'income', 'invoices', 'sales-receipts', 'bills',
-          'credit-notes', 'invoice-payments', 'bill-payments', 'journal-entries'],
+          'credit-notes', 'estimates', 'time-entries',
+          'invoice-payments', 'bill-payments', 'journal-entries'],
   },
 ];
 

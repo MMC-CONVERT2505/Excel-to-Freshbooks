@@ -104,6 +104,22 @@ const EXCEL_FILES: Record<string, EntityFile> = {
     name: 'Bill Payments',
     required: ['bill_number', 'amount', 'paid_date', 'currency_code'],
   },
+  estimates: {
+    id: 'estimates',
+    name: 'Estimates',
+    required: ['estimate_number', 'customer_name', 'create_date', 'line_qty', 'line_unit_cost'],
+  },
+  projects: {
+    id: 'projects',
+    name: 'Projects',
+    // client_name is optional — FreshBooks allows a project with no client.
+    required: ['title'],
+  },
+  'time-entries': {
+    id: 'time-entries',
+    name: 'Time Entries',
+    required: ['project_name', 'date', 'duration_hours'],
+  },
 };
 
 const router = Router();
@@ -483,6 +499,7 @@ async function runBatch2(entity: EntityFile, rows: Row[], issues: DryRunIssue[],
   const CURRENCY_ENTITIES = new Set([
     'clients','vendors','items','services','expenses','income',
     'invoices','bills','credit-notes','invoice-payments','bill-payments','journal-entries',
+    'estimates',
   ]);
   if (CURRENCY_ENTITIES.has(id)) {
     const seen = new Set<string>();
