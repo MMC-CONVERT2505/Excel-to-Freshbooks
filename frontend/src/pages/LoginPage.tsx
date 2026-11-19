@@ -116,11 +116,6 @@ export default function LoginPage() {
             <span className="lg-lockup__badge"><img src="/fb%20logo.png" alt="FreshBooks" /></span>
           </div>
 
-          <h2 className="lg-head">
-            Excel to FreshBooks,<br />
-            <span className="lg-head__grad">without the mix-ups.</span>
-          </h2>
-
           <ul className="lg-points">
             {POINTS.map(p => (
               <li className="lg-point" key={p}>
