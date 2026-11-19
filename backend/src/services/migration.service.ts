@@ -947,6 +947,10 @@ export async function migrateInvoices(tokenId: number | null = null): Promise<Mi
         terms: header.terms,
         language: header.language || 'en',
         status: fbStatus,
+        // optional po_number column (string, alphanumeric); blank is not sent
+        ...(String(header.po_number ?? '').trim()
+          ? { po_number: String(header.po_number).trim() }
+          : {}),
         lines,
       }));
 

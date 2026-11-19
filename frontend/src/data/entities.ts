@@ -219,6 +219,7 @@ export const TEMPLATES: Record<string, TplCol[]> = {
     { col:'tax_amount1',      req:false, ds:'Tax amount 1 for this line', ex:'2.00' },
     { col:'tax_name2',        req:false, ds:'Tax label 2', ex:'PST' },
     { col:'tax_amount2',      req:false, ds:'Tax amount 2 for this line', ex:'1.60' },
+    { col:'po_number',        req:false, ds:'PO number (letters and numbers) – saved as FreshBooks PO Number', ex:'PO-A1023' },
   ],
   // One row per line item, grouped by bill_number
   'bills': [

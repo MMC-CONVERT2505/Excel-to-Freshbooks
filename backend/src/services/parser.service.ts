@@ -514,6 +514,7 @@ export async function parseQBDInvoices(): Promise<{ output: Row[]; file: string 
         tax_amount1:      '',
         tax_name2:        '',
         tax_amount2:      '',
+        po_number:        String(h['P. O. #'] ?? h['P.O. #'] ?? h['PO #'] ?? h['P.O. Number'] ?? '').trim(),
       });
     }
   }
